@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# When Git Bash is launched directly from PowerShell/cmd, its Unix tools are not
+# always preloaded on PATH. Add the standard MSYS paths before using them.
+export PATH="/usr/bin:/bin:${PATH}"
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+build_dir="${BUILD_DIR:-"${repo_root}/out/build"}"
+build_type="${BUILD_TYPE:-Debug}"
+generator="${CMAKE_GENERATOR:-Ninja}"
+
+to_windows_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -w "$1"
+	else
+		printf '%s' "$1"
+	fi
+}
+
+to_posix_path() {
+	if command -v cygpath >/dev/null 2>&1; then
+		cygpath -u "$1"
+	else
+		printf '%s' "$1"
+	fi
+}
+
+find_vcvars64() {
+	if [[ -n "${VCVARS64:-}" ]]; then
+		to_windows_path "$VCVARS64"
+		return 0
+	fi
+
+	local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+	if [[ -x "$vswhere" ]]; then
+		local install_path
+		install_path="$("$vswhere" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>/dev/null | tr -d '\r' || true)"
+		if [[ -n "$install_path" ]]; then
+			local candidate="$(to_posix_path "$install_path")/VC/Auxiliary/Build/vcvars64.bat"
+			if [[ -f "$candidate" ]]; then
+				to_windows_path "$candidate"
+				return 0
+			fi
+		fi
+	fi
+
+	local candidates=(
+		"/c/Program Files/Microsoft Visual Studio/18/Community/VC/Auxiliary/Build/vcvars64.bat"
+		"/c/Program Files/Microsoft Visual Studio/18/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
+		"/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat"
+		"/c/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
+	)
+
+	for candidate in "${candidates[@]}"; do
+		if [[ -f "$candidate" ]]; then
+			to_windows_path "$candidate"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+vcvars64="$(find_vcvars64)" || {
+	echo "Could not find vcvars64.bat. Set VCVARS64 to its path and re-run: VCVARS64='/c/path/to/vcvars64.bat' ./build" >&2
+	exit 1
+}
+
+repo_root_win="$(to_windows_path "$repo_root")"
+build_dir_win="$(to_windows_path "$build_dir")"
+
+cmd_file="$(mktemp --suffix=.cmd)"
+cmd_file_win="$(to_windows_path "$cmd_file")"
+trap 'rm -f "$cmd_file"' EXIT
+
+cat >"$cmd_file" <<EOF
+@echo off
+call "${vcvars64}"
+if errorlevel 1 exit /b %errorlevel%
+cd /d "${repo_root_win}"
+if errorlevel 1 exit /b %errorlevel%
+cmake -S "${repo_root_win}" -B "${build_dir_win}" -G "${generator}" -DCMAKE_BUILD_TYPE=${build_type}
+if errorlevel 1 exit /b %errorlevel%
+cmake --build "${build_dir_win}" --config ${build_type}
+exit /b %errorlevel%
+EOF
+
+MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c "$cmd_file_win"

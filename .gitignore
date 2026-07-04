@@ -1,0 +1,5 @@
+out/
+.agents/
+vendor/
+node_modules/
+assets/
