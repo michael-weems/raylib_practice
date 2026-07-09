@@ -44,11 +44,6 @@ static float text_width_world(Font font, const char* text, float scale, float sp
     return x > 0.0f ? x - spacing_world : 0.0f;
 }
 
-void set_clip_planes(float near_plane, float far_plane)
-{
-    rlSetClipPlanes((double)near_plane, (double)far_plane);
-}
-
 void draw_box_faces(Vector3 mn, Vector3 mx, unsigned int face_mask, Color color)
 {
     Vector3 p000 = {mn.x, mn.y, mn.z}, p001 = {mn.x, mn.y, mx.z}, p010 = {mn.x, mx.y, mn.z}, p011 = {mn.x, mx.y, mx.z};
@@ -71,12 +66,6 @@ void draw_box_edges(Vector3 mn, Vector3 mx, Color c)
     DrawLine3D(p000, p001, c); DrawLine3D(p001, p011, c); DrawLine3D(p011, p010, c); DrawLine3D(p010, p000, c);
     DrawLine3D(p100, p101, c); DrawLine3D(p101, p111, c); DrawLine3D(p111, p110, c); DrawLine3D(p110, p100, c);
     DrawLine3D(p000, p100, c); DrawLine3D(p001, p101, c); DrawLine3D(p010, p110, c); DrawLine3D(p011, p111, c);
-}
-
-void draw_text_3d(Font font, const char* text, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& s)
-{
-    const char* lines[1] = { text };
-    draw_text_lines_3d(font, lines, 1, center, right, up, s, s.font_size_world);
 }
 
 void draw_text_lines_3d(Font font, const char** lines, int line_count, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& s, float line_step_world)
@@ -149,7 +138,8 @@ void draw_billboard_text_3d(Camera3D camera, Font font, const char* text, Vector
     Vector3 forward = v3_norm(v3_sub(camera.position, center));
     Vector3 right = v3_norm(v3_cross(camera.up, forward));
     Vector3 up = v3_norm(v3_cross(forward, right));
-    draw_text_3d(font, text, center, right, up, style);
+    const char* lines[1] = { text };
+    draw_text_lines_3d(font, lines, 1, center, right, up, style, style.font_size_world);
 }
 
 void draw_arrow_with_gap(Vector3 origin, Vector3 dir, float start_offset, float length, float gap, float radius, Color color)
@@ -164,8 +154,8 @@ void draw_arrow_with_gap(Vector3 origin, Vector3 dir, float start_offset, float 
     Vector3 b1 = v3_add(origin, v3_mul(n, tip - head));
     Vector3 t0 = b1;
     Vector3 t1 = v3_add(origin, v3_mul(n, tip));
-    if (v3_len(v3_sub(a1, a0)) > 0.01f) DrawCylinderEx(a0, a1, radius, radius, 10, color);
-    if (v3_len(v3_sub(b1, b0)) > 0.01f) DrawCylinderEx(b0, b1, radius, radius, 10, color);
+    if (length*0.5f - half_gap - start_offset > 0.01f) DrawCylinderEx(a0, a1, radius, radius, 10, color);
+    if (tip - head - (length*0.5f + half_gap) > 0.01f) DrawCylinderEx(b0, b1, radius, radius, 10, color);
     DrawCylinderEx(t0, t1, radius*3.0f, 0.0f, 16, color);
 }
 

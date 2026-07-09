@@ -18,7 +18,7 @@ static uint32_t clamp_u32(int v, uint32_t hi)
 
 void cube_field_init(Cube_Field& f, uint32_t x, uint32_t y, uint32_t z, float cube_size, float spacing)
 {
-    f.count_x = x; f.count_y = y; f.count_z = z; f.total_count = x*y*z;
+    f.count_x = x; f.count_y = y; f.count_z = z; f.stride_y = x; f.stride_z = x*y; f.total_count = x*y*z;
     f.cube_size = cube_size; f.spacing = spacing;
     f.first_center.x = -((float)x - 1.0f)*spacing*0.5f;
     f.first_center.y = -((float)y - 1.0f)*spacing*0.5f;
@@ -32,7 +32,7 @@ void cube_field_init(Cube_Field& f, uint32_t x, uint32_t y, uint32_t z, float cu
 Cube_Handle cube_handle_from_coords(const Cube_Field& f, uint32_t x, uint32_t y, uint32_t z)
 {
     if (x >= f.count_x || y >= f.count_y || z >= f.count_z) return CUBE_HANDLE_STUB;
-    return (Cube_Handle)((z*f.count_y + y)*f.count_x + x + CUBE_HANDLE_FIRST);
+    return (Cube_Handle)(z*f.stride_z + y*f.stride_y + x + CUBE_HANDLE_FIRST);
 }
 
 Cube_Coords cube_coords_from_handle(const Cube_Field& f, Cube_Handle h)
@@ -40,14 +40,15 @@ Cube_Coords cube_coords_from_handle(const Cube_Field& f, Cube_Handle h)
     Cube_Coords c = {};
     if (h == CUBE_HANDLE_STUB || h > f.total_count) return c;
     uint32_t i = h - CUBE_HANDLE_FIRST;
-    c.x = i%f.count_x;
-    c.y = (i/f.count_x)%f.count_y;
-    c.z = i/(f.count_x*f.count_y);
+    c.x = i%f.stride_y;
+    c.y = (i/f.stride_y)%f.count_y;
+    c.z = i/f.stride_z;
     return c;
 }
 
 Cube_Handle cube_handle_from_world(const Cube_Field& f, Vector3 p)
 {
+    if (!f.count_x || !f.count_y || !f.count_z || f.spacing == 0.0f) return CUBE_HANDLE_STUB;
     int x = (int)floorf((p.x - f.first_center.x)/f.spacing + 0.5f);
     int y = (int)floorf((p.y - f.first_center.y)/f.spacing + 0.5f);
     int z = (int)floorf((p.z - f.first_center.z)/f.spacing + 0.5f);
@@ -91,7 +92,7 @@ void cube_data_release(Cube_Data& d, alloc::Allocator& allocator)
 
 Cube_Value cube_value_at(const Cube_Data& d, Cube_Handle h)
 {
-    return (h < d.count && d.values) ? (Cube_Value)d.values[h] : CUBE_VALUE_NONE;
+    return h < d.count ? (Cube_Value)d.values[h] : CUBE_VALUE_NONE;
 }
 
 const char* cube_value_name(Cube_Value v)

@@ -148,6 +148,10 @@ the learner's rebuild.
   one immediate textured-quad pass per visible face.
 - Local cube geometry batching was attempted, did not improve FPS, and caused
   alpha regressions; keep local cubes on the simpler per-cube immediate path.
+- Latest reference simplification pass kept the SDK complementary to Raylib:
+  removed the pure clip-plane wrapper, kept custom utilities, cached field
+  strides for one-based handles, and used direct handle/value/bounds math in
+  tight local render/pick loops.
 - `REPORT.md` explains the finished architecture and Graphics Rendering 101.
 - `CURRICULUM.md` is the authoritative rebuild sequence.
 - `3D_SPACE_CURRICULUM.md` is a separate 12-week/60-session mathematics

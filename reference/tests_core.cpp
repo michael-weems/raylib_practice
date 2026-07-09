@@ -39,6 +39,8 @@ int main(void)
     failures += expect_int((int)first, 1, "first handle is one-based");
     failures += expect_int((int)second, 2, "x is innermost");
     failures += expect_int((int)z_next, 13, "z stride is x*y");
+    failures += expect_int((int)field.stride_y, 4, "stored y stride");
+    failures += expect_int((int)field.stride_z, 12, "stored z stride");
 
     app::Cube_Coords coords = app::cube_coords_from_handle(field, z_next);
     failures += expect_int((int)coords.x, 0, "coords x");
@@ -54,6 +56,11 @@ int main(void)
     failures += expect_float(center3.y,  5.0f, "odd y max centered");
     failures += expect_float(center0.z, -2.5f, "even z min centered");
     failures += expect_float(center3.z,  2.5f, "even z max centered");
+
+    app::Cube_Data empty_data = {};
+    app::Cube_Field empty_field = {};
+    failures += expect_int((int)app::cube_value_at(empty_data, app::CUBE_HANDLE_STUB), (int)app::CUBE_VALUE_NONE, "zero data returns stub value");
+    failures += expect_int((int)app::cube_handle_from_world(empty_field, Vector3{0, 0, 0}), (int)app::CUBE_HANDLE_STUB, "zero field world lookup returns stub handle");
 
     return failures ? 1 : 0;
 }

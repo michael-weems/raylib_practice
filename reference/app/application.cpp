@@ -10,7 +10,6 @@
 namespace app {
 
 struct Local_Draw_Command {
-    Cube_Handle handle;
     Vector3 min;
     Vector3 max;
     Color fill;
@@ -182,12 +181,16 @@ static void draw_cube_face_text(Application& app, Cube_Handle h)
     if (face_text_visible(app.orbit.camera, nz, v3(0,0,-1))) draw_text_stack(app.font, id, value, "-z", nz, v3(-1,0,0), v3(0,1,0));
 }
 
-static int grid_index_visible(uint32_t i, uint32_t focus, uint32_t count, int fine_radius, int min_major_stride)
+static int grid_stride(uint32_t count, int min_major_stride)
 {
-    int d = (int)i - (int)focus;
     uint32_t stride = count/40u;
     if (stride < (uint32_t)min_major_stride) stride = (uint32_t)min_major_stride;
-    if (stride == 0u) stride = 1u;
+    return (int)(stride ? stride : 1u);
+}
+
+static int grid_index_visible(uint32_t i, uint32_t focus, uint32_t count, int fine_radius, int stride)
+{
+    int d = (int)i - (int)focus;
     return i == 0u || i+1u == count || (d >= -fine_radius && d <= fine_radius) || (i%stride) == 0u;
 }
 
@@ -196,33 +199,34 @@ static void draw_local_grid_planes(Application& app)
     const Cube_Field& f = app.field;
     Cube_Coords active = cube_coords_from_handle(f, app.active_cube);
     Color c = Color{130, 130, 130, 90};
-    int radius = app.config.local.grid_fine_radius, stride = app.config.local.grid_min_major_stride;
-    for (uint32_t y = 0; y < f.count_y; ++y) if (grid_index_visible(y, active.y, f.count_y, radius, stride)) {
+    int radius = app.config.local.grid_fine_radius, sx = grid_stride(f.count_x, app.config.local.grid_min_major_stride);
+    int sy = grid_stride(f.count_y, app.config.local.grid_min_major_stride), sz = grid_stride(f.count_z, app.config.local.grid_min_major_stride);
+    for (uint32_t y = 0; y < f.count_y; ++y) if (grid_index_visible(y, active.y, f.count_y, radius, sy)) {
         float yy = f.first_center.y + (float)y*f.spacing;
         DrawLine3D(v3(f.bounds_min.x, yy, f.bounds_min.z), v3(f.bounds_min.x, yy, f.bounds_max.z), c);
         DrawLine3D(v3(f.bounds_max.x, yy, f.bounds_min.z), v3(f.bounds_max.x, yy, f.bounds_max.z), c);
     }
-    for (uint32_t z = 0; z < f.count_z; ++z) if (grid_index_visible(z, active.z, f.count_z, radius, stride)) {
+    for (uint32_t z = 0; z < f.count_z; ++z) if (grid_index_visible(z, active.z, f.count_z, radius, sz)) {
         float zz = f.first_center.z + (float)z*f.spacing;
         DrawLine3D(v3(f.bounds_min.x, f.bounds_min.y, zz), v3(f.bounds_min.x, f.bounds_max.y, zz), c);
         DrawLine3D(v3(f.bounds_max.x, f.bounds_min.y, zz), v3(f.bounds_max.x, f.bounds_max.y, zz), c);
     }
-    for (uint32_t x = 0; x < f.count_x; ++x) if (grid_index_visible(x, active.x, f.count_x, radius, stride)) {
+    for (uint32_t x = 0; x < f.count_x; ++x) if (grid_index_visible(x, active.x, f.count_x, radius, sx)) {
         float xx = f.first_center.x + (float)x*f.spacing;
         DrawLine3D(v3(xx, f.bounds_min.y, f.bounds_min.z), v3(xx, f.bounds_min.y, f.bounds_max.z), c);
         DrawLine3D(v3(xx, f.bounds_max.y, f.bounds_min.z), v3(xx, f.bounds_max.y, f.bounds_max.z), c);
     }
-    for (uint32_t z = 0; z < f.count_z; ++z) if (grid_index_visible(z, active.z, f.count_z, radius, stride)) {
+    for (uint32_t z = 0; z < f.count_z; ++z) if (grid_index_visible(z, active.z, f.count_z, radius, sz)) {
         float zz = f.first_center.z + (float)z*f.spacing;
         DrawLine3D(v3(f.bounds_min.x, f.bounds_min.y, zz), v3(f.bounds_max.x, f.bounds_min.y, zz), c);
         DrawLine3D(v3(f.bounds_min.x, f.bounds_max.y, zz), v3(f.bounds_max.x, f.bounds_max.y, zz), c);
     }
-    for (uint32_t x = 0; x < f.count_x; ++x) if (grid_index_visible(x, active.x, f.count_x, radius, stride)) {
+    for (uint32_t x = 0; x < f.count_x; ++x) if (grid_index_visible(x, active.x, f.count_x, radius, sx)) {
         float xx = f.first_center.x + (float)x*f.spacing;
         DrawLine3D(v3(xx, f.bounds_min.y, f.bounds_min.z), v3(xx, f.bounds_max.y, f.bounds_min.z), c);
         DrawLine3D(v3(xx, f.bounds_min.y, f.bounds_max.z), v3(xx, f.bounds_max.y, f.bounds_max.z), c);
     }
-    for (uint32_t y = 0; y < f.count_y; ++y) if (grid_index_visible(y, active.y, f.count_y, radius, stride)) {
+    for (uint32_t y = 0; y < f.count_y; ++y) if (grid_index_visible(y, active.y, f.count_y, radius, sy)) {
         float yy = f.first_center.y + (float)y*f.spacing;
         DrawLine3D(v3(f.bounds_min.x, yy, f.bounds_min.z), v3(f.bounds_max.x, yy, f.bounds_min.z), c);
         DrawLine3D(v3(f.bounds_min.x, yy, f.bounds_max.z), v3(f.bounds_max.x, yy, f.bounds_max.z), c);
@@ -255,13 +259,15 @@ static void render_local_view(Application& app)
     uint32_t max_transparent = (uint32_t)((maxx-minx+1)*(maxy-miny+1)*(maxz-minz+1));
     Local_Draw_Command* transparent = (Local_Draw_Command*)alloc::arena_push(app.frame_arena, sizeof(Local_Draw_Command)*max_transparent, 64);
     uint32_t transparent_count = 0;
+    float half = app.field.cube_size*0.5f;
 
     draw_local_grid_planes(app);
     for (int z = minz; z <= maxz; ++z) for (int y = miny; y <= maxy; ++y) for (int x = minx; x <= maxx; ++x) {
-        Cube_Handle h = cube_handle_from_coords(app.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-        Cube_Value v = cube_value_at(app.data, h);
-        Vector3 mn, mx; cube_bounds(app.field, h, mn, mx);
-        Local_Draw_Command cmd = {h, mn, mx, pal.fill[v], pal.edge[v], len2(sub(mul(add(mn, mx), 0.5f), app.orbit.camera.position))};
+        Cube_Handle h = (Cube_Handle)((uint32_t)z*app.field.stride_z + (uint32_t)y*app.field.stride_y + (uint32_t)x + CUBE_HANDLE_FIRST);
+        Cube_Value v = (Cube_Value)app.data.values[h];
+        Vector3 center = v3(app.field.first_center.x + (float)x*app.field.spacing, app.field.first_center.y + (float)y*app.field.spacing, app.field.first_center.z + (float)z*app.field.spacing);
+        Vector3 mn = v3(center.x - half, center.y - half, center.z - half), mx = v3(center.x + half, center.y + half, center.z + half);
+        Local_Draw_Command cmd = {mn, mx, pal.fill[v], pal.edge[v], len2(sub(center, app.orbit.camera.position))};
         if (cmd.fill.a < 255 && transparent) transparent[transparent_count++] = cmd; else draw_command_single(cmd);
     }
 
@@ -284,6 +290,7 @@ static void render_local_view(Application& app)
 
 static uint32_t coarse_count(uint32_t count, uint32_t span)
 {
+    if (!span) span = 1u;
     return (count + span - 1u)/span;
 }
 
@@ -370,11 +377,12 @@ static Cube_Handle pick_local_cube(Application& app, Ray ray)
     int miny = clamp_i32((int)a.y-r, 0, (int)app.field.count_y-1), maxy = clamp_i32((int)a.y+r, 0, (int)app.field.count_y-1);
     int minz = clamp_i32((int)a.z-r, 0, (int)app.field.count_z-1), maxz = clamp_i32((int)a.z+r, 0, (int)app.field.count_z-1);
     Cube_Handle best = 0; float best_dist = 3.4e38f;
+    float half = app.field.cube_size*0.5f;
     for (int z = minz; z <= maxz; ++z) for (int y = miny; y <= maxy; ++y) for (int x = minx; x <= maxx; ++x) {
-        Cube_Handle h = cube_handle_from_coords(app.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-        Vector3 mn, mx; cube_bounds(app.field, h, mn, mx);
+        Vector3 center = v3(app.field.first_center.x + (float)x*app.field.spacing, app.field.first_center.y + (float)y*app.field.spacing, app.field.first_center.z + (float)z*app.field.spacing);
+        Vector3 mn = v3(center.x - half, center.y - half, center.z - half), mx = v3(center.x + half, center.y + half, center.z + half);
         RayCollision hit = GetRayCollisionBox(ray, BoundingBox{mn, mx});
-        if (hit.hit && hit.distance < best_dist) { best_dist = hit.distance; best = h; }
+        if (hit.hit && hit.distance < best_dist) { best_dist = hit.distance; best = (Cube_Handle)((uint32_t)z*app.field.stride_z + (uint32_t)y*app.field.stride_y + (uint32_t)x + CUBE_HANDLE_FIRST); }
     }
     return best;
 }
@@ -432,7 +440,7 @@ void application_frame(Application& app)
     Axis_Label bird_labels[6] = {};
     BeginDrawing();
     ClearBackground(Color{18, 18, 24, 255});
-    if (app.view_mode == VIEW_LOCAL) sdk::set_clip_planes(app.config.local.clip_near, app.config.local.clip_far); else sdk::set_clip_planes(app.config.birds_eye.clip_near, app.config.birds_eye.clip_far);
+    if (app.view_mode == VIEW_LOCAL) rlSetClipPlanes((double)app.config.local.clip_near, (double)app.config.local.clip_far); else rlSetClipPlanes((double)app.config.birds_eye.clip_near, (double)app.config.birds_eye.clip_far);
     BeginMode3D(app.orbit.camera);
     if (app.view_mode == VIEW_LOCAL) render_local_view(app); else { render_birds_eye_shell(app); draw_birds_eye_compass_3d(app, bird_labels); }
     EndMode3D();

@@ -30,6 +30,8 @@ struct Cube_Field {
     uint32_t count_x;
     uint32_t count_y;
     uint32_t count_z;
+    uint32_t stride_y;
+    uint32_t stride_z;
     uint32_t total_count;
     float cube_size;
     float spacing;
