@@ -1,30 +1,20 @@
-#ifndef REFERENCE_SDK_RUNTIME_H
-#define REFERENCE_SDK_RUNTIME_H
+#pragma once
 
 namespace sdk {
 
-enum Runtime_Result {
-    RUNTIME_SUCCESS = 0,
-    RUNTIME_ERROR_ALREADY_INITIALIZED,
-    RUNTIME_ERROR_WINDOW_INITIALIZATION
-};
-
 struct Runtime_Config {
-    const char* title;
     int screen_width;
     int screen_height;
     int target_fps;
-    int exit_key;
+    const char* title;
 };
 
 struct Runtime_State {
-    int is_initialized;
-    int used_defaults;
+    Runtime_Config config;
+    int initialized;
 };
 
-Runtime_Result runtime_init(Runtime_State& state, Runtime_Config& config);
-void runtime_shutdown(Runtime_State& state);
+int runtime_init(Runtime_State& runtime, const Runtime_Config& requested);
+void runtime_shutdown(Runtime_State& runtime);
 
-} // namespace sdk
-
-#endif // REFERENCE_SDK_RUNTIME_H
+}

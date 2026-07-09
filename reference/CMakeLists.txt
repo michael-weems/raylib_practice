@@ -46,6 +46,19 @@ if(MSVC)
   target_compile_options(reference_software_renderer PRIVATE /W4)
 endif()
 
+add_executable(reference_core_tests
+  tests_core.cpp
+  allocators/arena_allocator.h
+  allocators/arena_allocator.cpp
+  app/cube_field.h
+  app/cube_field.cpp
+)
+target_include_directories(reference_core_tests PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+target_link_libraries(reference_core_tests PRIVATE raylib)
+if(MSVC)
+  target_compile_options(reference_core_tests PRIVATE /W4)
+endif()
+
 add_custom_command(
   TARGET reference_software_renderer
   POST_BUILD

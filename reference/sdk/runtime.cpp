@@ -4,58 +4,28 @@
 
 namespace sdk {
 
-Runtime_Result runtime_init(Runtime_State& state, Runtime_Config& config)
+int runtime_init(Runtime_State& runtime, const Runtime_Config& requested)
 {
-    if (state.is_initialized) {
-        return RUNTIME_ERROR_ALREADY_INITIALIZED;
-    }
+    Runtime_Config c = requested;
+    if (c.screen_width <= 0) c.screen_width = 1920;
+    if (c.screen_height <= 0) c.screen_height = 1080;
+    if (c.target_fps <= 0) c.target_fps = 60;
+    if (!c.title || !c.title[0]) c.title = "software renderer";
 
-    state.used_defaults = 0;
+    InitWindow(c.screen_width, c.screen_height, c.title);
+    if (!IsWindowReady()) return 1;
 
-    if (!config.title || config.title[0] == '\0') {
-        config.title = "Software Cube Field";
-        state.used_defaults = 1;
-    }
-
-    if (config.screen_width <= 0) {
-        config.screen_width = 1920;
-        state.used_defaults = 1;
-    }
-
-    if (config.screen_height <= 0) {
-        config.screen_height = 1080;
-        state.used_defaults = 1;
-    }
-
-    if (config.target_fps <= 0) {
-        config.target_fps = 60;
-        state.used_defaults = 1;
-    }
-
-    if (config.exit_key == 0) {
-        config.exit_key = KEY_ESCAPE;
-        state.used_defaults = 1;
-    }
-
-    InitWindow(config.screen_width, config.screen_height, config.title);
-
-    if (!IsWindowReady()) {
-        return RUNTIME_ERROR_WINDOW_INITIALIZATION;
-    }
-
-    SetTargetFPS(config.target_fps);
-    SetExitKey(config.exit_key);
-
-    state.is_initialized = 1;
-    return RUNTIME_SUCCESS;
+    SetTargetFPS(c.target_fps);
+    SetExitKey(KEY_ESCAPE);
+    runtime.config = c;
+    runtime.initialized = 1;
+    return 0;
 }
 
-void runtime_shutdown(Runtime_State& state)
+void runtime_shutdown(Runtime_State& runtime)
 {
-    if (state.is_initialized) {
-        CloseWindow();
-        state.is_initialized = 0;
-    }
+    if (runtime.initialized) CloseWindow();
+    runtime.initialized = 0;
 }
 
-} // namespace sdk
+}

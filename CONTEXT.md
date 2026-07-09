@@ -122,20 +122,27 @@ the learner's rebuild.
 ## Repository state and tools
 
 - `reference/` contains the regenerated C++ reference implementation source.
+  It was rewritten fresh after the prior reference was deleted, preserving the
+  independent build files and tests while folding in the cleanup review:
+  caller-owned allocation, byte-wide cube value SoA, config structs for tuning,
+  one-based handles, immediate-mode rendering, and concise C-style modules.
 - `reference/CMakeLists.txt` builds that source as an independent project and
   links its own Raylib target from `vendor/raylib`; it does not depend on `src`.
 - `reference/make` configures/builds `reference/CMakeLists.txt` into
   `out/reference-build` and runs `reference_software_renderer.exe`.
-- Reference repair pass: cube face text is real 3D face text, compass labels
-  are depth-tested billboards, keys 1/2/3 switch palettes, and birds-eye uses
-  widened clip planes.
-- Birds-eye compass labels use a larger explicit billboard label size and a
-  black 3D billboard background; local compass labels remain smaller/no-bg.
+- Reference source modules are `allocators`, `sdk`, and `app`; app view logic is
+  intentionally kept fairly wide in `application.cpp` instead of split into
+  tiny files prematurely.
+- `reference_core_tests` is now wired into `reference/CMakeLists.txt` for
+  nonvisual handle/centering invariants.
 - Birds-eye stability rule: render only outward-facing shell faces, not whole
   sampled cubes, with no wires/transparent sorting; this avoids hidden coplanar
   faces and RLSW flicker/tearing. Birds-eye label backgrounds render as 2D
   screen overlays after the 3D pass, and far-side compass labels are not pushed
   into the overlay buffer.
+- Local compass labels are centered in the arrow shaft gap. Local boundary
+  grids use LOD: complete selected boundary lines, dense near the active cube's
+  projected coordinates, and coarse major lines in the distance.
 - `REPORT.md` explains the finished architecture and Graphics Rendering 101.
 - `CURRICULUM.md` is the authoritative rebuild sequence.
 - `3D_SPACE_CURRICULUM.md` is a separate 12-week/60-session mathematics

@@ -1,9 +1,6 @@
 #include "app/application.h"
 
 #include "sdk/rendering.h"
-
-#include "raylib.h"
-#include "raymath.h"
 #include "rlgl.h"
 
 #include <math.h>
@@ -12,905 +9,442 @@
 
 namespace app {
 
-static const int LOCAL_RENDER_RADIUS = 5;
-static const int LOCAL_TEXT_RADIUS = 3;
-static const uint32_t BIRD_BLOCK_STEP = 10;
-static const int MAX_BILLBOARD_LABELS = 256;
-
-struct Cube_Draw_Command {
-    Vector3 center;
-    Vector3 size;
+struct Local_Draw_Command {
+    Cube_Handle handle;
+    Vector3 min;
+    Vector3 max;
     Color fill;
     Color edge;
-    float distance_to_camera_sq;
+    float distance2;
 };
 
-static float square(float x)
+struct Axis_Label {
+    const char* text;
+    Vector3 position;
+    int visible;
+};
+
+static Vector3 v3(float x, float y, float z) { return Vector3{x, y, z}; }
+static Vector3 add(Vector3 a, Vector3 b) { return v3(a.x+b.x, a.y+b.y, a.z+b.z); }
+static Vector3 sub(Vector3 a, Vector3 b) { return v3(a.x-b.x, a.y-b.y, a.z-b.z); }
+static Vector3 mul(Vector3 a, float s) { return v3(a.x*s, a.y*s, a.z*s); }
+static float dot(Vector3 a, Vector3 b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
+static Vector3 cross(Vector3 a, Vector3 b) { return v3(a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x); }
+static float len2(Vector3 a) { return dot(a, a); }
+static float len(Vector3 a) { return sqrtf(len2(a)); }
+static Vector3 norm(Vector3 a) { float l = len(a); return l > 0.0f ? mul(a, 1.0f/l) : v3(0, 0, 0); }
+static uint32_t min_u32(uint32_t a, uint32_t b) { return a < b ? a : b; }
+static uint32_t max_u32(uint32_t a, uint32_t b) { return a > b ? a : b; }
+static int clamp_i32(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static float max3(float a, float b, float c) { return a > b ? (a > c ? a : c) : (b > c ? b : c); }
+static int key_pressed2(int a, int b) { return IsKeyPressed(a) || IsKeyPressed(b); }
+
+static int compare_draw_distance_desc(const void* a, const void* b)
 {
-    return x * x;
+    float da = ((const Local_Draw_Command*)a)->distance2;
+    float db = ((const Local_Draw_Command*)b)->distance2;
+    return da < db ? 1 : (da > db ? -1 : 0);
 }
 
-static float distance_squared(Vector3 a, Vector3 b)
+Application_Config application_default_config(void)
 {
-    return square(a.x - b.x) + square(a.y - b.y) + square(a.z - b.z);
+    Application_Config c = {};
+    c.runtime.screen_width = 1920; c.runtime.screen_height = 1080; c.runtime.target_fps = 60; c.runtime.title = "CPU Software Cube Field";
+    c.field_x = 500; c.field_y = 1000; c.field_z = 100; c.cube_size = 1.0f; c.cube_spacing = 5.0f; c.frame_arena_size = 8u*1024u*1024u;
+    c.local.render_radius = 5; c.local.text_radius = 3; c.local.grid_fine_radius = 8; c.local.grid_min_major_stride = 10; c.local.clip_near = 0.01f; c.local.clip_far = 8000.0f;
+    c.local.orbit.mouse_sensitivity = 0.0035f; c.local.orbit.wheel_speed = 1.4f; c.local.orbit.min_pitch = -1.48f; c.local.orbit.max_pitch = 1.48f; c.local.orbit.min_distance = 2.0f; c.local.orbit.max_distance = 80.0f; c.local.orbit.fovy = 60.0f;
+    c.birds_eye.block_source_span = 10; c.birds_eye.clip_near = 1.0f; c.birds_eye.clip_far = 40000.0f; c.birds_eye.start_distance = 7200.0f;
+    c.birds_eye.orbit.mouse_sensitivity = 0.0030f; c.birds_eye.orbit.wheel_speed = 140.0f; c.birds_eye.orbit.min_pitch = -1.48f; c.birds_eye.orbit.max_pitch = 1.48f; c.birds_eye.orbit.min_distance = 600.0f; c.birds_eye.orbit.max_distance = 30000.0f; c.birds_eye.orbit.fovy = 60.0f;
+    c.compass.local_length = 3.4f; c.compass.local_radius = 0.035f; c.compass.local_label_size = 0.34f; c.compass.bird_length_scale = 0.16f; c.compass.bird_radius_scale = 0.0035f; c.compass.bird_label_pixels = 64.0f;
+    return c;
 }
 
-static int compare_cube_commands_far_to_near(const void* a, const void* b)
+static Vector3 field_center(const Cube_Field& f)
 {
-    const Cube_Draw_Command* left = (const Cube_Draw_Command*)a;
-    const Cube_Draw_Command* right = (const Cube_Draw_Command*)b;
+    return mul(add(f.bounds_min, f.bounds_max), 0.5f);
+}
 
-    if (left->distance_to_camera_sq < right->distance_to_camera_sq) {
-        return 1;
-    }
+static float field_max_span(const Cube_Field& f)
+{
+    return max3(f.bounds_max.x - f.bounds_min.x, f.bounds_max.y - f.bounds_min.y, f.bounds_max.z - f.bounds_min.z);
+}
 
-    if (left->distance_to_camera_sq > right->distance_to_camera_sq) {
-        return -1;
-    }
+static void switch_to_local(Application& app, Cube_Handle target)
+{
+    app.view_mode = VIEW_LOCAL;
+    app.active_cube = target ? target : app.active_cube;
+    Cube_Coords c = cube_coords_from_handle(app.field, app.active_cube);
+    sdk::orbit_camera_retarget(app.orbit, cube_center(app.field, c.x, c.y, c.z));
+    app.orbit.distance = app.orbit.distance < app.config.local.orbit.max_distance ? app.orbit.distance : 12.0f;
+    app.cursor.wants_capture = 1;
+}
 
+static void switch_to_birds_eye(Application& app)
+{
+    app.view_mode = VIEW_BIRDS_EYE;
+    app.orbit.target = field_center(app.field);
+    app.orbit.distance = app.config.birds_eye.start_distance;
+    app.orbit.pitch = 1.30f;
+    app.cursor.wants_capture = 1;
+}
+
+int application_init(Application& app, const Application_Config& config, alloc::Allocator& allocator)
+{
+    app.config = config;
+    app.persistent_allocator = allocator;
+    if (sdk::runtime_init(app.runtime, config.runtime)) return 1;
+
+    app.frame_memory_size = config.frame_arena_size;
+    app.frame_memory = alloc::allocator_alloc(allocator, app.frame_memory_size, 64);
+    if (!app.frame_memory) return 2;
+    alloc::arena_init(app.frame_arena, app.frame_memory, app.frame_memory_size);
+
+    cube_field_init(app.field, config.field_x, config.field_y, config.field_z, config.cube_size, config.cube_spacing);
+    if (cube_data_generate(app.data, app.field, allocator)) return 3;
+    cube_palettes_init(app.palettes);
+
+    uint32_t ax = app.field.count_x/2u, ay = app.field.count_y/2u, az = app.field.count_z/2u;
+    app.active_cube = cube_handle_from_coords(app.field, ax, ay, az);
+    sdk::orbit_camera_init(app.orbit, cube_center(app.field, ax, ay, az), 0.75f, 0.45f, 12.0f, config.local.orbit.fovy);
+    app.cursor.wants_capture = 1;
+    app.palette_index = 0;
+    app.view_mode = VIEW_LOCAL;
+
+    app.font = LoadFontEx("assets/fonts/FiraCode-Regular.ttf", 48, 0, 0);
+    if (app.font.texture.id) app.owns_font = 1; else app.font = GetFontDefault();
     return 0;
 }
 
-static void derive_camera_from_orbit(
-    const sdk::Orbit_Camera_Config& config,
-    const sdk::Orbit_Camera_State& state,
-    Camera3D& camera)
+static void navigate_active_cube(Application& app, Vector3 direction)
 {
-    float horizontal_radius = cosf(state.pitch) * state.distance;
-    float vertical_offset = sinf(state.pitch) * state.distance;
-
-    camera.target = state.target;
-    camera.position.x = state.target.x + sinf(state.yaw) * horizontal_radius;
-    camera.position.y = state.target.y + vertical_offset;
-    camera.position.z = state.target.z + cosf(state.yaw) * horizontal_radius;
-    camera.up = config.up;
-    camera.fovy = config.fovy;
-    camera.projection = config.projection;
+    Cube_Coords c = cube_coords_from_handle(app.field, app.active_cube);
+    float ax = fabsf(direction.x), ay = fabsf(direction.y), az = fabsf(direction.z);
+    int dx = 0, dy = 0, dz = 0;
+    if (ay >= ax && ay >= az) dy = direction.y >= 0.0f ? 1 : -1;
+    else if (ax >= az) dx = direction.x >= 0.0f ? 1 : -1;
+    else dz = direction.z >= 0.0f ? 1 : -1;
+    uint32_t nx = (uint32_t)clamp_i32((int)c.x + dx, 0, (int)app.field.count_x - 1);
+    uint32_t ny = (uint32_t)clamp_i32((int)c.y + dy, 0, (int)app.field.count_y - 1);
+    uint32_t nz = (uint32_t)clamp_i32((int)c.z + dz, 0, (int)app.field.count_z - 1);
+    Cube_Handle h = cube_handle_from_coords(app.field, nx, ny, nz);
+    if (h) switch_to_local(app, h);
 }
 
-static Vector3 vector_for_axis_step(int axis, int sign)
+static void handle_keyboard(Application& app)
 {
-    Vector3 result = {};
+    if (IsKeyPressed(KEY_ONE)) app.palette_index = 0;
+    if (IsKeyPressed(KEY_TWO)) app.palette_index = 1;
+    if (IsKeyPressed(KEY_THREE)) app.palette_index = 2;
+    if (IsKeyPressed(KEY_G)) { if (app.view_mode == VIEW_LOCAL) switch_to_birds_eye(app); else switch_to_local(app, app.active_cube); }
+    if (app.view_mode != VIEW_LOCAL) return;
 
-    if (axis == 0) {
-        result.x = (float)sign;
-    } else if (axis == 1) {
-        result.y = (float)sign;
-    } else {
-        result.z = (float)sign;
-    }
-
-    return result;
+    Vector3 forward = norm(sub(app.orbit.camera.target, app.orbit.camera.position));
+    Vector3 right = norm(cross(forward, app.orbit.camera.up));
+    if (key_pressed2(KEY_W, KEY_UP)) navigate_active_cube(app, forward);
+    if (key_pressed2(KEY_S, KEY_DOWN)) navigate_active_cube(app, mul(forward, -1.0f));
+    if (key_pressed2(KEY_D, KEY_RIGHT)) navigate_active_cube(app, right);
+    if (key_pressed2(KEY_A, KEY_LEFT)) navigate_active_cube(app, mul(right, -1.0f));
 }
 
-static void dominant_axis_step(Vector3 direction, int& dx, int& dy, int& dz)
+static void draw_cube_command(const Local_Draw_Command& c)
 {
-    dx = 0;
-    dy = 0;
-    dz = 0;
-
-    float ax = fabsf(direction.x);
-    float ay = fabsf(direction.y);
-    float az = fabsf(direction.z);
-
-    if (ax >= ay && ax >= az) {
-        dx = direction.x >= 0.0f ? 1 : -1;
-    } else if (ay >= ax && ay >= az) {
-        dy = direction.y >= 0.0f ? 1 : -1;
-    } else {
-        dz = direction.z >= 0.0f ? 1 : -1;
-    }
+    sdk::draw_box_faces(c.min, c.max, sdk::FACE_ALL, c.fill);
+    sdk::draw_box_edges(c.min, c.max, c.edge);
 }
 
-static void navigate_active_cube(App_State& state, const Camera3D& camera)
+static void draw_text_stack(Font font, const char* a, const char* b, const char* c, Vector3 center, Vector3 right, Vector3 up)
 {
-    if (state.view_mode != APP_VIEW_LOCAL) {
-        return;
-    }
-
-    int pressed_forward = IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP);
-    int pressed_backward = IsKeyPressed(KEY_S) || IsKeyPressed(KEY_DOWN);
-    int pressed_left = IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT);
-    int pressed_right = IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT);
-
-    if (!pressed_forward && !pressed_backward && !pressed_left && !pressed_right) {
-        return;
-    }
-
-    Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
-    Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, Vector3{ 0.0f, 1.0f, 0.0f }));
-
-    if (Vector3LengthSqr(right) < 0.0001f) {
-        right = Vector3{ 1.0f, 0.0f, 0.0f };
-    }
-
-    Vector3 move = {};
-
-    if (pressed_forward) {
-        move = Vector3Add(move, forward);
-    }
-    if (pressed_backward) {
-        move = Vector3Subtract(move, forward);
-    }
-    if (pressed_right) {
-        move = Vector3Add(move, right);
-    }
-    if (pressed_left) {
-        move = Vector3Subtract(move, right);
-    }
-
-    int dx = 0;
-    int dy = 0;
-    int dz = 0;
-    dominant_axis_step(move, dx, dy, dz);
-
-    Cube_Coords coords = cube_coords_from_handle(state.config.field, state.active_cube);
-    state.active_cube = cube_handle_clamped(
-        state.config.field,
-        (int)coords.x + dx,
-        (int)coords.y + dy,
-        (int)coords.z + dz);
-
-    state.local_camera.target = cube_center_from_handle(state.config.field, state.active_cube);
+    sdk::Text3D_Style s = {};
+    s.font_size_world = 0.140f; s.spacing_world = 0.004f; s.text_color = WHITE;
+    sdk::draw_text_3d(font, a, add(center, mul(up, 0.180f)), right, up, s);
+    sdk::draw_text_3d(font, b, center, right, up, s);
+    sdk::draw_text_3d(font, c, add(center, mul(up, -0.180f)), right, up, s);
 }
 
-static void cube_face_basis(int face, Vector3& normal, Vector3& right, Vector3& up, const char*& face_name)
+static void draw_cube_face_text(Application& app, Cube_Handle h)
 {
-    if (face == 0) {
-        normal = Vector3{  1.0f,  0.0f,  0.0f };
-        right  = Vector3{  0.0f,  0.0f, -1.0f };
-        up     = Vector3{  0.0f,  1.0f,  0.0f };
-        face_name = "+x";
-    } else if (face == 1) {
-        normal = Vector3{ -1.0f,  0.0f,  0.0f };
-        right  = Vector3{  0.0f,  0.0f,  1.0f };
-        up     = Vector3{  0.0f,  1.0f,  0.0f };
-        face_name = "-x";
-    } else if (face == 2) {
-        normal = Vector3{  0.0f,  1.0f,  0.0f };
-        right  = Vector3{  1.0f,  0.0f,  0.0f };
-        up     = Vector3{  0.0f,  0.0f, -1.0f };
-        face_name = "+y";
-    } else if (face == 3) {
-        normal = Vector3{  0.0f, -1.0f,  0.0f };
-        right  = Vector3{  1.0f,  0.0f,  0.0f };
-        up     = Vector3{  0.0f,  0.0f,  1.0f };
-        face_name = "-y";
-    } else if (face == 4) {
-        normal = Vector3{  0.0f,  0.0f,  1.0f };
-        right  = Vector3{  1.0f,  0.0f,  0.0f };
-        up     = Vector3{  0.0f,  1.0f,  0.0f };
-        face_name = "+z";
-    } else {
-        normal = Vector3{  0.0f,  0.0f, -1.0f };
-        right  = Vector3{ -1.0f,  0.0f,  0.0f };
-        up     = Vector3{  0.0f,  1.0f,  0.0f };
-        face_name = "-z";
+    Vector3 mn, mx; cube_bounds(app.field, h, mn, mx);
+    Vector3 mid = mul(add(mn, mx), 0.5f);
+    char id[32]; snprintf(id, sizeof(id), "%u", h);
+    const char* value = cube_value_name(cube_value_at(app.data, h));
+    float e = 0.012f;
+    draw_text_stack(app.font, id, value, "+x", v3(mx.x+e, mid.y, mid.z), v3(0,0,-1), v3(0,1,0));
+    draw_text_stack(app.font, id, value, "-x", v3(mn.x-e, mid.y, mid.z), v3(0,0, 1), v3(0,1,0));
+    draw_text_stack(app.font, id, value, "+y", v3(mid.x, mx.y+e, mid.z), v3(1,0,0), v3(0,0,-1));
+    draw_text_stack(app.font, id, value, "-y", v3(mid.x, mn.y-e, mid.z), v3(1,0,0), v3(0,0, 1));
+    draw_text_stack(app.font, id, value, "+z", v3(mid.x, mid.y, mx.z+e), v3(1,0,0), v3(0,1,0));
+    draw_text_stack(app.font, id, value, "-z", v3(mid.x, mid.y, mn.z-e), v3(-1,0,0), v3(0,1,0));
+}
+
+static int grid_index_visible(uint32_t i, uint32_t focus, uint32_t count, int fine_radius, int min_major_stride)
+{
+    int d = (int)i - (int)focus;
+    uint32_t stride = count/40u;
+    if (stride < (uint32_t)min_major_stride) stride = (uint32_t)min_major_stride;
+    if (stride == 0u) stride = 1u;
+    return i == 0u || i+1u == count || (d >= -fine_radius && d <= fine_radius) || (i%stride) == 0u;
+}
+
+static void draw_local_grid_planes(Application& app)
+{
+    const Cube_Field& f = app.field;
+    Cube_Coords active = cube_coords_from_handle(f, app.active_cube);
+    Color c = Color{130, 130, 130, 90};
+    int radius = app.config.local.grid_fine_radius, stride = app.config.local.grid_min_major_stride;
+    for (uint32_t y = 0; y < f.count_y; ++y) if (grid_index_visible(y, active.y, f.count_y, radius, stride)) {
+        float yy = f.first_center.y + (float)y*f.spacing;
+        DrawLine3D(v3(f.bounds_min.x, yy, f.bounds_min.z), v3(f.bounds_min.x, yy, f.bounds_max.z), c);
+        DrawLine3D(v3(f.bounds_max.x, yy, f.bounds_min.z), v3(f.bounds_max.x, yy, f.bounds_max.z), c);
+    }
+    for (uint32_t z = 0; z < f.count_z; ++z) if (grid_index_visible(z, active.z, f.count_z, radius, stride)) {
+        float zz = f.first_center.z + (float)z*f.spacing;
+        DrawLine3D(v3(f.bounds_min.x, f.bounds_min.y, zz), v3(f.bounds_min.x, f.bounds_max.y, zz), c);
+        DrawLine3D(v3(f.bounds_max.x, f.bounds_min.y, zz), v3(f.bounds_max.x, f.bounds_max.y, zz), c);
+    }
+    for (uint32_t x = 0; x < f.count_x; ++x) if (grid_index_visible(x, active.x, f.count_x, radius, stride)) {
+        float xx = f.first_center.x + (float)x*f.spacing;
+        DrawLine3D(v3(xx, f.bounds_min.y, f.bounds_min.z), v3(xx, f.bounds_min.y, f.bounds_max.z), c);
+        DrawLine3D(v3(xx, f.bounds_max.y, f.bounds_min.z), v3(xx, f.bounds_max.y, f.bounds_max.z), c);
+    }
+    for (uint32_t z = 0; z < f.count_z; ++z) if (grid_index_visible(z, active.z, f.count_z, radius, stride)) {
+        float zz = f.first_center.z + (float)z*f.spacing;
+        DrawLine3D(v3(f.bounds_min.x, f.bounds_min.y, zz), v3(f.bounds_max.x, f.bounds_min.y, zz), c);
+        DrawLine3D(v3(f.bounds_min.x, f.bounds_max.y, zz), v3(f.bounds_max.x, f.bounds_max.y, zz), c);
+    }
+    for (uint32_t x = 0; x < f.count_x; ++x) if (grid_index_visible(x, active.x, f.count_x, radius, stride)) {
+        float xx = f.first_center.x + (float)x*f.spacing;
+        DrawLine3D(v3(xx, f.bounds_min.y, f.bounds_min.z), v3(xx, f.bounds_max.y, f.bounds_min.z), c);
+        DrawLine3D(v3(xx, f.bounds_min.y, f.bounds_max.z), v3(xx, f.bounds_max.y, f.bounds_max.z), c);
+    }
+    for (uint32_t y = 0; y < f.count_y; ++y) if (grid_index_visible(y, active.y, f.count_y, radius, stride)) {
+        float yy = f.first_center.y + (float)y*f.spacing;
+        DrawLine3D(v3(f.bounds_min.x, yy, f.bounds_min.z), v3(f.bounds_max.x, yy, f.bounds_min.z), c);
+        DrawLine3D(v3(f.bounds_min.x, yy, f.bounds_max.z), v3(f.bounds_max.x, yy, f.bounds_max.z), c);
     }
 }
 
-static void draw_cube_face_text(
-    const Cube_Field& field,
-    Cube_Handle handle,
-    Cube_Value value,
-    Vector3 center)
+static void draw_local_compass(Application& app)
 {
-    float face_offset = field.cube_size * 0.5f + 0.0125f;
-    float font_size = field.cube_size * 0.115f;
-    float spacing = field.cube_size * 0.012f;
-    float line_spacing = field.cube_size * 0.145f;
-
-    char index_text[64] = {};
-    snprintf(index_text, sizeof(index_text), "#%u", handle);
-
-    for (int face = 0; face < 6; ++face) {
-        Vector3 normal = {};
-        Vector3 right = {};
-        Vector3 up = {};
-        const char* face_name = "";
-        cube_face_basis(face, normal, right, up, face_name);
-
-        Vector3 face_center = Vector3Add(center, Vector3Scale(normal, face_offset));
-        sdk::draw_text_on_plane_3d(index_text, Vector3Add(face_center, Vector3Scale(up, line_spacing)), right, up, font_size, spacing, WHITE);
-        sdk::draw_text_on_plane_3d(cube_value_name(value), face_center, right, up, font_size, spacing, WHITE);
-        sdk::draw_text_on_plane_3d(face_name, Vector3Subtract(face_center, Vector3Scale(up, line_spacing)), right, up, font_size, spacing, WHITE);
+    Vector3 o = app.orbit.target;
+    float start = app.field.cube_size*0.75f;
+    const char* labels[6] = {"+x", "-x", "+y", "-y", "+z", "-z"};
+    Vector3 dirs[6] = {v3(1,0,0), v3(-1,0,0), v3(0,1,0), v3(0,-1,0), v3(0,0,1), v3(0,0,-1)};
+    Color colors[6] = {BLUE, BLUE, RED, RED, GREEN, GREEN};
+    sdk::Text3D_Style style = {};
+    style.font_size_world = app.config.compass.local_label_size; style.spacing_world = 0.01f; style.text_color = WHITE;
+    for (int i = 0; i < 6; ++i) {
+        sdk::draw_arrow_with_gap(o, dirs[i], start, app.config.compass.local_length, 1.25f, app.config.compass.local_radius, colors[i]);
+        sdk::draw_billboard_text_3d(app.orbit.camera, app.font, labels[i], add(o, mul(dirs[i], app.config.compass.local_length*0.5f)), style);
     }
 }
 
-static void render_local_compass(App_State& state, sdk::Billboard_Label_Buffer& labels)
+static void render_local_view(Application& app)
 {
-    Vector3 center = cube_center_from_handle(state.config.field, state.active_cube);
-    float face_offset = state.config.field.cube_size * 0.5f + 0.05f;
-    float length = state.config.field.spacing * 0.65f;
-    float thickness = 0.065f;
-    float gap = 0.72f;
+    const Cube_Palette& pal = cube_palette(app.palettes, app.palette_index);
+    Cube_Coords a = cube_coords_from_handle(app.field, app.active_cube);
+    int r = app.config.local.render_radius, tr = app.config.local.text_radius;
+    int minx = clamp_i32((int)a.x-r, 0, (int)app.field.count_x-1), maxx = clamp_i32((int)a.x+r, 0, (int)app.field.count_x-1);
+    int miny = clamp_i32((int)a.y-r, 0, (int)app.field.count_y-1), maxy = clamp_i32((int)a.y+r, 0, (int)app.field.count_y-1);
+    int minz = clamp_i32((int)a.z-r, 0, (int)app.field.count_z-1), maxz = clamp_i32((int)a.z+r, 0, (int)app.field.count_z-1);
+    uint32_t max_transparent = (uint32_t)((maxx-minx+1)*(maxy-miny+1)*(maxz-minz+1));
+    Local_Draw_Command* transparent = (Local_Draw_Command*)alloc::arena_push(app.frame_arena, sizeof(Local_Draw_Command)*max_transparent, 64);
+    uint32_t transparent_count = 0;
 
-    sdk::draw_axis_compass_arrow(labels, Vector3Add(center, Vector3Scale(vector_for_axis_step(0,  1), face_offset)), 0,  1, length, thickness, gap, BLUE,  "+x");
-    sdk::draw_axis_compass_arrow(labels, Vector3Add(center, Vector3Scale(vector_for_axis_step(0, -1), face_offset)), 0, -1, length, thickness, gap, BLUE,  "-x");
-    sdk::draw_axis_compass_arrow(labels, Vector3Add(center, Vector3Scale(vector_for_axis_step(1,  1), face_offset)), 1,  1, length, thickness, gap, RED,   "+y");
-    sdk::draw_axis_compass_arrow(labels, Vector3Add(center, Vector3Scale(vector_for_axis_step(1, -1), face_offset)), 1, -1, length, thickness, gap, RED,   "-y");
-    sdk::draw_axis_compass_arrow(labels, Vector3Add(center, Vector3Scale(vector_for_axis_step(2,  1), face_offset)), 2,  1, length, thickness, gap, GREEN, "+z");
-    sdk::draw_axis_compass_arrow(labels, Vector3Add(center, Vector3Scale(vector_for_axis_step(2, -1), face_offset)), 2, -1, length, thickness, gap, GREEN, "-z");
+    draw_local_grid_planes(app);
+    for (int z = minz; z <= maxz; ++z) for (int y = miny; y <= maxy; ++y) for (int x = minx; x <= maxx; ++x) {
+        Cube_Handle h = cube_handle_from_coords(app.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
+        Cube_Value v = cube_value_at(app.data, h);
+        Vector3 mn, mx; cube_bounds(app.field, h, mn, mx);
+        Local_Draw_Command cmd = {h, mn, mx, pal.fill[v], pal.edge[v], len2(sub(mul(add(mn, mx), 0.5f), app.orbit.camera.position))};
+        if (cmd.fill.a < 255 && transparent) transparent[transparent_count++] = cmd; else draw_cube_command(cmd);
+    }
+
+    if (transparent && transparent_count) {
+        qsort(transparent, transparent_count, sizeof(Local_Draw_Command), compare_draw_distance_desc);
+        BeginBlendMode(BLEND_ALPHA);
+        for (uint32_t i = 0; i < transparent_count; ++i) draw_cube_command(transparent[i]);
+        EndBlendMode();
+    }
+
+    int tminx = clamp_i32((int)a.x-tr, 0, (int)app.field.count_x-1), tmaxx = clamp_i32((int)a.x+tr, 0, (int)app.field.count_x-1);
+    int tminy = clamp_i32((int)a.y-tr, 0, (int)app.field.count_y-1), tmaxy = clamp_i32((int)a.y+tr, 0, (int)app.field.count_y-1);
+    int tminz = clamp_i32((int)a.z-tr, 0, (int)app.field.count_z-1), tmaxz = clamp_i32((int)a.z+tr, 0, (int)app.field.count_z-1);
+    for (int z = tminz; z <= tmaxz; ++z) for (int y = tminy; y <= tmaxy; ++y) for (int x = tminx; x <= tmaxx; ++x) {
+        draw_cube_face_text(app, cube_handle_from_coords(app.field, (uint32_t)x, (uint32_t)y, (uint32_t)z));
+    }
+
+    draw_local_compass(app);
 }
 
-static void render_bird_compass(App_State& state, const Camera3D& camera, sdk::Billboard_Label_Buffer& labels)
+static uint32_t coarse_count(uint32_t count, uint32_t span)
 {
-    Vector3 field_min = cube_field_min(state.config.field);
-    Vector3 field_max = cube_field_max(state.config.field);
-    Vector3 field_size = cube_field_world_size(state.config.field);
-
-    float max_extent = field_size.x;
-    if (field_size.y > max_extent) max_extent = field_size.y;
-    if (field_size.z > max_extent) max_extent = field_size.z;
-
-    float length = max_extent * 0.18f;
-    float thickness = max_extent * 0.004f;
-    float label_font_size = max_extent * 0.050f;
-    float label_padding = label_font_size * 0.25f;
-    float gap = label_font_size * 2.40f;
-    float outward = state.config.field.spacing * (float)BIRD_BLOCK_STEP;
-    Color label_background = Color{ 0, 0, 0, 255 };
-
-    Vector3 x_face_pos = Vector3{ field_max.x + outward, 0.0f, 0.0f };
-    Vector3 x_face_neg = Vector3{ field_min.x - outward, 0.0f, 0.0f };
-    Vector3 y_face_pos = Vector3{ 0.0f, field_max.y + outward, 0.0f };
-    Vector3 y_face_neg = Vector3{ 0.0f, field_min.y - outward, 0.0f };
-    Vector3 z_face_pos = Vector3{ 0.0f, 0.0f, field_max.z + outward };
-    Vector3 z_face_neg = Vector3{ 0.0f, 0.0f, field_min.z - outward };
-
-    const char* x_pos_label = camera.position.x >= field_max.x ? "+x" : "";
-    const char* x_neg_label = camera.position.x <= field_min.x ? "-x" : "";
-    const char* y_pos_label = camera.position.y >= field_max.y ? "+y" : "";
-    const char* y_neg_label = camera.position.y <= field_min.y ? "-y" : "";
-    const char* z_pos_label = camera.position.z >= field_max.z ? "+z" : "";
-    const char* z_neg_label = camera.position.z <= field_min.z ? "-z" : "";
-
-    sdk::draw_axis_compass_arrow_ex(labels, x_face_pos, 0,  1, length, thickness, gap, BLUE,  x_pos_label, label_font_size, WHITE, label_background, label_padding);
-    sdk::draw_axis_compass_arrow_ex(labels, x_face_neg, 0, -1, length, thickness, gap, BLUE,  x_neg_label, label_font_size, WHITE, label_background, label_padding);
-    sdk::draw_axis_compass_arrow_ex(labels, y_face_pos, 1,  1, length, thickness, gap, RED,   y_pos_label, label_font_size, WHITE, label_background, label_padding);
-    sdk::draw_axis_compass_arrow_ex(labels, y_face_neg, 1, -1, length, thickness, gap, RED,   y_neg_label, label_font_size, WHITE, label_background, label_padding);
-    sdk::draw_axis_compass_arrow_ex(labels, z_face_pos, 2,  1, length, thickness, gap, GREEN, z_pos_label, label_font_size, WHITE, label_background, label_padding);
-    sdk::draw_axis_compass_arrow_ex(labels, z_face_neg, 2, -1, length, thickness, gap, GREEN, z_neg_label, label_font_size, WHITE, label_background, label_padding);
+    return (count + span - 1u)/span;
 }
 
-static void draw_command(const Camera3D& camera, const Cube_Draw_Command& command)
+static void coarse_bounds_axis(float mn, float mx, uint32_t i, uint32_t n, float& out_min, float& out_max)
 {
-    sdk::draw_cube_software_friendly(camera, command.center, command.size, command.fill, command.edge);
+    float step = (mx - mn)/(float)n;
+    out_min = mn + (float)i*step;
+    out_max = i + 1u == n ? mx : out_min + step;
 }
 
-static void draw_birds_eye_face(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color fill)
+static Cube_Handle coarse_source_handle(const Cube_Field& f, uint32_t bx, uint32_t by, uint32_t bz, uint32_t cx, uint32_t cy, uint32_t cz)
 {
-    fill.a = 255;
-
-    rlCheckRenderBatchLimit(6);
-    rlSetTexture(0);
-
-    rlBegin(RL_TRIANGLES);
-        rlColor4ub(fill.r, fill.g, fill.b, fill.a);
-        rlVertex3f(a.x, a.y, a.z);
-        rlVertex3f(b.x, b.y, b.z);
-        rlVertex3f(c.x, c.y, c.z);
-
-        rlVertex3f(a.x, a.y, a.z);
-        rlVertex3f(c.x, c.y, c.z);
-        rlVertex3f(d.x, d.y, d.z);
-    rlEnd();
+    uint32_t x0 = (uint32_t)(((uint64_t)bx*f.count_x)/cx), x1 = (uint32_t)(((uint64_t)(bx+1u)*f.count_x)/cx);
+    uint32_t y0 = (uint32_t)(((uint64_t)by*f.count_y)/cy), y1 = (uint32_t)(((uint64_t)(by+1u)*f.count_y)/cy);
+    uint32_t z0 = (uint32_t)(((uint64_t)bz*f.count_z)/cz), z1 = (uint32_t)(((uint64_t)(bz+1u)*f.count_z)/cz);
+    return cube_handle_from_coords(f, min_u32((x0 + max_u32(x1, x0+1u) - 1u)/2u, f.count_x-1u), min_u32((y0 + max_u32(y1, y0+1u) - 1u)/2u, f.count_y-1u), min_u32((z0 + max_u32(z1, z0+1u) - 1u)/2u, f.count_z-1u));
 }
 
-static void draw_birds_eye_shell_block_faces(
-    const Cube_Draw_Command& command,
-    uint32_t bx,
-    uint32_t by,
-    uint32_t bz,
-    uint32_t blocks_x,
-    uint32_t blocks_y,
-    uint32_t blocks_z)
+static void coarse_block_bounds(const Cube_Field& f, uint32_t bx, uint32_t by, uint32_t bz, uint32_t cx, uint32_t cy, uint32_t cz, Vector3& mn, Vector3& mx)
 {
-    Vector3 half = Vector3Scale(command.size, 0.5f);
+    coarse_bounds_axis(f.bounds_min.x, f.bounds_max.x, bx, cx, mn.x, mx.x);
+    coarse_bounds_axis(f.bounds_min.y, f.bounds_max.y, by, cy, mn.y, mx.y);
+    coarse_bounds_axis(f.bounds_min.z, f.bounds_max.z, bz, cz, mn.z, mx.z);
+}
 
-    float min_x = command.center.x - half.x;
-    float max_x = command.center.x + half.x;
-    float min_y = command.center.y - half.y;
-    float max_y = command.center.y + half.y;
-    float min_z = command.center.z - half.z;
-    float max_z = command.center.z + half.z;
-
-    if (bx == blocks_x - 1u) {
-        draw_birds_eye_face(
-            Vector3{ max_x, min_y, min_z },
-            Vector3{ max_x, min_y, max_z },
-            Vector3{ max_x, max_y, max_z },
-            Vector3{ max_x, max_y, min_z },
-            command.fill);
+static void render_birds_eye_shell(Application& app)
+{
+    const Cube_Palette& pal = cube_palette(app.palettes, app.palette_index);
+    uint32_t cx = coarse_count(app.field.count_x, app.config.birds_eye.block_source_span);
+    uint32_t cy = coarse_count(app.field.count_y, app.config.birds_eye.block_source_span);
+    uint32_t cz = coarse_count(app.field.count_z, app.config.birds_eye.block_source_span);
+    BeginBlendMode(BLEND_ALPHA);
+    for (uint32_t z = 0; z < cz; ++z) for (uint32_t y = 0; y < cy; ++y) for (uint32_t x = 0; x < cx; ++x) {
+        if (x && y && z && x+1u < cx && y+1u < cy && z+1u < cz) continue;
+        Vector3 mn, mx; coarse_block_bounds(app.field, x, y, z, cx, cy, cz, mn, mx);
+        Cube_Value v = cube_value_at(app.data, coarse_source_handle(app.field, x, y, z, cx, cy, cz));
+        unsigned int mask = 0;
+        if (x == 0) mask |= sdk::FACE_NEG_X; if (x+1u == cx) mask |= sdk::FACE_POS_X;
+        if (y == 0) mask |= sdk::FACE_NEG_Y; if (y+1u == cy) mask |= sdk::FACE_POS_Y;
+        if (z == 0) mask |= sdk::FACE_NEG_Z; if (z+1u == cz) mask |= sdk::FACE_POS_Z;
+        sdk::draw_box_faces(mn, mx, mask, pal.fill[v]);
     }
+    EndBlendMode();
+}
 
-    if (bx == 0) {
-        draw_birds_eye_face(
-            Vector3{ min_x, min_y, max_z },
-            Vector3{ min_x, min_y, min_z },
-            Vector3{ min_x, max_y, min_z },
-            Vector3{ min_x, max_y, max_z },
-            command.fill);
-    }
+static void draw_birds_eye_compass_3d(Application& app, Axis_Label labels[6])
+{
+    const char* names[6] = {"+x", "-x", "+y", "-y", "+z", "-z"};
+    Vector3 dirs[6] = {v3(1,0,0), v3(-1,0,0), v3(0,1,0), v3(0,-1,0), v3(0,0,1), v3(0,0,-1)};
+    Color colors[6] = {BLUE, BLUE, RED, RED, GREEN, GREEN};
+    Vector3 center = field_center(app.field);
+    float max_span = field_max_span(app.field);
+    float length = max_span*app.config.compass.bird_length_scale;
+    float radius = max_span*app.config.compass.bird_radius_scale;
+    Vector3 face[6] = {v3(app.field.bounds_max.x, center.y, center.z), v3(app.field.bounds_min.x, center.y, center.z), v3(center.x, app.field.bounds_max.y, center.z), v3(center.x, app.field.bounds_min.y, center.z), v3(center.x, center.y, app.field.bounds_max.z), v3(center.x, center.y, app.field.bounds_min.z)};
 
-    if (by == blocks_y - 1u) {
-        draw_birds_eye_face(
-            Vector3{ min_x, max_y, min_z },
-            Vector3{ max_x, max_y, min_z },
-            Vector3{ max_x, max_y, max_z },
-            Vector3{ min_x, max_y, max_z },
-            command.fill);
-    }
-
-    if (by == 0) {
-        draw_birds_eye_face(
-            Vector3{ min_x, min_y, max_z },
-            Vector3{ max_x, min_y, max_z },
-            Vector3{ max_x, min_y, min_z },
-            Vector3{ min_x, min_y, min_z },
-            command.fill);
-    }
-
-    if (bz == blocks_z - 1u) {
-        draw_birds_eye_face(
-            Vector3{ max_x, min_y, max_z },
-            Vector3{ min_x, min_y, max_z },
-            Vector3{ min_x, max_y, max_z },
-            Vector3{ max_x, max_y, max_z },
-            command.fill);
-    }
-
-    if (bz == 0) {
-        draw_birds_eye_face(
-            Vector3{ min_x, min_y, min_z },
-            Vector3{ max_x, min_y, min_z },
-            Vector3{ max_x, max_y, min_z },
-            Vector3{ min_x, max_y, min_z },
-            command.fill);
+    for (int i = 0; i < 6; ++i) {
+        float start = max_span*0.015f;
+        sdk::draw_arrow_with_gap(face[i], dirs[i], start, length, length*0.28f, radius, colors[i]);
+        labels[i].text = names[i];
+        labels[i].position = add(face[i], mul(dirs[i], length*0.5f));
+        labels[i].visible = (i == 0 && app.orbit.camera.position.x >= app.field.bounds_max.x) || (i == 1 && app.orbit.camera.position.x <= app.field.bounds_min.x) ||
+                            (i == 2 && app.orbit.camera.position.y >= app.field.bounds_max.y) || (i == 3 && app.orbit.camera.position.y <= app.field.bounds_min.y) ||
+                            (i == 4 && app.orbit.camera.position.z >= app.field.bounds_max.z) || (i == 5 && app.orbit.camera.position.z <= app.field.bounds_min.z);
     }
 }
 
-static void render_local_view(App_State& state, const Camera3D& camera, allocators::Arena_Allocator& arena, sdk::Billboard_Label_Buffer& labels)
+static void draw_birds_eye_compass_labels_2d(Application& app, Axis_Label labels[6])
 {
-    Cube_Coords active = cube_coords_from_handle(state.config.field, state.active_cube);
-    int min_x = (int)active.x - LOCAL_RENDER_RADIUS;
-    int max_x = (int)active.x + LOCAL_RENDER_RADIUS;
-    int min_y = (int)active.y - LOCAL_RENDER_RADIUS;
-    int max_y = (int)active.y + LOCAL_RENDER_RADIUS;
-    int min_z = (int)active.z - LOCAL_RENDER_RADIUS;
-    int max_z = (int)active.z + LOCAL_RENDER_RADIUS;
-
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (min_z < 0) min_z = 0;
-    if (max_x >= (int)state.config.field.count_x) max_x = (int)state.config.field.count_x - 1;
-    if (max_y >= (int)state.config.field.count_y) max_y = (int)state.config.field.count_y - 1;
-    if (max_z >= (int)state.config.field.count_z) max_z = (int)state.config.field.count_z - 1;
-
-    int max_commands = (2*LOCAL_RENDER_RADIUS + 1) * (2*LOCAL_RENDER_RADIUS + 1) * (2*LOCAL_RENDER_RADIUS + 1);
-    Cube_Draw_Command* transparent = (Cube_Draw_Command*)allocators::arena_push(arena, sizeof(Cube_Draw_Command) * (size_t)max_commands, alignof(Cube_Draw_Command));
-    int transparent_count = 0;
-
-    Vector3 cube_size = Vector3{ state.config.field.cube_size, state.config.field.cube_size, state.config.field.cube_size };
-
-    for (int z = min_z; z <= max_z; ++z) {
-        for (int y = min_y; y <= max_y; ++y) {
-            for (int x = min_x; x <= max_x; ++x) {
-                Cube_Handle handle = cube_handle_from_coords(state.config.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-                Cube_Value value = cube_value_at(state.cube_data, handle);
-                Vector3 center = cube_center(state.config.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-                Color fill = state.palette.fill[value];
-                Color edge = state.palette.edge[value];
-
-                if (fill.a < 255 && transparent && transparent_count < max_commands) {
-                    Cube_Draw_Command* command = transparent + transparent_count;
-                    command->center = center;
-                    command->size = cube_size;
-                    command->fill = fill;
-                    command->edge = edge;
-                    command->distance_to_camera_sq = distance_squared(camera.position, center);
-                    ++transparent_count;
-                } else {
-                    sdk::draw_cube_software_friendly(camera, center, cube_size, fill, edge);
-                }
-
-            }
-        }
-    }
-
-    if (transparent && transparent_count > 1) {
-        qsort(transparent, (size_t)transparent_count, sizeof(Cube_Draw_Command), compare_cube_commands_far_to_near);
-    }
-
-    for (int i = 0; i < transparent_count; ++i) {
-        draw_command(camera, transparent[i]);
-    }
-
-    for (int z = min_z; z <= max_z; ++z) {
-        for (int y = min_y; y <= max_y; ++y) {
-            for (int x = min_x; x <= max_x; ++x) {
-                int dx = x - (int)active.x;
-                int dy = y - (int)active.y;
-                int dz = z - (int)active.z;
-
-                if (dx*dx + dy*dy + dz*dz <= LOCAL_TEXT_RADIUS * LOCAL_TEXT_RADIUS) {
-                    Cube_Handle handle = cube_handle_from_coords(state.config.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-                    Cube_Value value = cube_value_at(state.cube_data, handle);
-                    Vector3 center = cube_center(state.config.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-                    draw_cube_face_text(state.config.field, handle, value, center);
-                }
-            }
-        }
-    }
-
-    sdk::draw_boundary_grid_planes(cube_field_min(state.config.field), cube_field_max(state.config.field), state.config.field.spacing, Color{ 80, 80, 80, 125 });
-    render_local_compass(state, labels);
-}
-
-static uint32_t block_count_for_axis(uint32_t cube_count)
-{
-    return (cube_count + BIRD_BLOCK_STEP - 1u) / BIRD_BLOCK_STEP;
-}
-
-static void block_range(uint32_t block_index, uint32_t cube_count, uint32_t& start, uint32_t& end)
-{
-    start = block_index * BIRD_BLOCK_STEP;
-    end = start + BIRD_BLOCK_STEP;
-    if (end > cube_count) {
-        end = cube_count;
+    for (int i = 0; i < 6; ++i) if (labels[i].visible) {
+        Vector2 p = GetWorldToScreen(labels[i].position, app.orbit.camera);
+        float size = app.config.compass.bird_label_pixels;
+        Vector2 m = MeasureTextEx(app.font, labels[i].text, size, 2.0f);
+        DrawRectangle((int)(p.x - m.x*0.5f - 10.0f), (int)(p.y - m.y*0.5f - 6.0f), (int)(m.x + 20.0f), (int)(m.y + 12.0f), BLACK);
+        DrawTextEx(app.font, labels[i].text, Vector2{p.x - m.x*0.5f, p.y - m.y*0.5f}, size, 2.0f, WHITE);
     }
 }
 
-static Vector3 bird_block_center(const Cube_Field& field, uint32_t bx, uint32_t by, uint32_t bz)
+static Cube_Handle pick_local_cube(Application& app, Ray ray)
 {
-    uint32_t sx = 0, ex = 0;
-    uint32_t sy = 0, ey = 0;
-    uint32_t sz = 0, ez = 0;
-    block_range(bx, field.count_x, sx, ex);
-    block_range(by, field.count_y, sy, ey);
-    block_range(bz, field.count_z, sz, ez);
-
-    Vector3 a = cube_center(field, sx, sy, sz);
-    Vector3 b = cube_center(field, ex - 1u, ey - 1u, ez - 1u);
-    return Vector3Scale(Vector3Add(a, b), 0.5f);
+    Cube_Coords a = cube_coords_from_handle(app.field, app.active_cube);
+    int r = app.config.local.render_radius;
+    int minx = clamp_i32((int)a.x-r, 0, (int)app.field.count_x-1), maxx = clamp_i32((int)a.x+r, 0, (int)app.field.count_x-1);
+    int miny = clamp_i32((int)a.y-r, 0, (int)app.field.count_y-1), maxy = clamp_i32((int)a.y+r, 0, (int)app.field.count_y-1);
+    int minz = clamp_i32((int)a.z-r, 0, (int)app.field.count_z-1), maxz = clamp_i32((int)a.z+r, 0, (int)app.field.count_z-1);
+    Cube_Handle best = 0; float best_dist = 3.4e38f;
+    for (int z = minz; z <= maxz; ++z) for (int y = miny; y <= maxy; ++y) for (int x = minx; x <= maxx; ++x) {
+        Cube_Handle h = cube_handle_from_coords(app.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
+        Vector3 mn, mx; cube_bounds(app.field, h, mn, mx);
+        RayCollision hit = GetRayCollisionBox(ray, BoundingBox{mn, mx});
+        if (hit.hit && hit.distance < best_dist) { best_dist = hit.distance; best = h; }
+    }
+    return best;
 }
 
-static Vector3 bird_block_size(const Cube_Field& field, uint32_t bx, uint32_t by, uint32_t bz)
+static Cube_Handle pick_birds_eye_cube(Application& app, Ray ray)
 {
-    uint32_t sx = 0, ex = 0;
-    uint32_t sy = 0, ey = 0;
-    uint32_t sz = 0, ez = 0;
-    block_range(bx, field.count_x, sx, ex);
-    block_range(by, field.count_y, sy, ey);
-    block_range(bz, field.count_z, sz, ez);
-
-    return Vector3{
-        field.spacing * (float)(ex - sx),
-        field.spacing * (float)(ey - sy),
-        field.spacing * (float)(ez - sz)
-    };
+    uint32_t cx = coarse_count(app.field.count_x, app.config.birds_eye.block_source_span);
+    uint32_t cy = coarse_count(app.field.count_y, app.config.birds_eye.block_source_span);
+    uint32_t cz = coarse_count(app.field.count_z, app.config.birds_eye.block_source_span);
+    Cube_Handle best = 0; float best_dist = 3.4e38f; Vector3 best_point = {};
+    for (uint32_t z = 0; z < cz; ++z) for (uint32_t y = 0; y < cy; ++y) for (uint32_t x = 0; x < cx; ++x) {
+        if (x && y && z && x+1u < cx && y+1u < cy && z+1u < cz) continue;
+        Vector3 mn, mx; coarse_block_bounds(app.field, x, y, z, cx, cy, cz, mn, mx);
+        RayCollision hit = GetRayCollisionBox(ray, BoundingBox{mn, mx});
+        if (hit.hit && hit.distance < best_dist) { best_dist = hit.distance; best_point = hit.point; best = 1; }
+    }
+    return best ? cube_handle_from_world(app.field, best_point) : 0;
 }
 
-static Cube_Handle bird_block_source_handle(const Cube_Field& field, uint32_t bx, uint32_t by, uint32_t bz)
+static void handle_selection(Application& app)
 {
-    uint32_t sx = 0, ex = 0;
-    uint32_t sy = 0, ey = 0;
-    uint32_t sz = 0, ez = 0;
-    block_range(bx, field.count_x, sx, ex);
-    block_range(by, field.count_y, sy, ey);
-    block_range(bz, field.count_z, sz, ez);
-
-    return cube_handle_from_coords(field, (sx + ex - 1u)/2u, (sy + ey - 1u)/2u, (sz + ez - 1u)/2u);
-}
-
-static void render_birds_eye_view(App_State& state, const Camera3D& camera, allocators::Arena_Allocator& arena, sdk::Billboard_Label_Buffer& labels)
-{
-    (void)camera;
-    (void)arena;
-
-    uint32_t blocks_x = block_count_for_axis(state.config.field.count_x);
-    uint32_t blocks_y = block_count_for_axis(state.config.field.count_y);
-    uint32_t blocks_z = block_count_for_axis(state.config.field.count_z);
-
-    rlDisableBackfaceCulling();
-
-    for (uint32_t bz = 0; bz < blocks_z; ++bz) {
-        for (uint32_t by = 0; by < blocks_y; ++by) {
-            for (uint32_t bx = 0; bx < blocks_x; ++bx) {
-                int is_shell =
-                    bx == 0 || bx == blocks_x - 1u ||
-                    by == 0 || by == blocks_y - 1u ||
-                    bz == 0 || bz == blocks_z - 1u;
-
-                if (!is_shell) {
-                    continue;
-                }
-
-                Cube_Handle handle = bird_block_source_handle(state.config.field, bx, by, bz);
-                Cube_Value value = cube_value_at(state.cube_data, handle);
-                Color fill = state.palette.fill[value];
-                Color edge = state.palette.edge[value];
-
-                Cube_Draw_Command command = {};
-                command.center = bird_block_center(state.config.field, bx, by, bz);
-                command.size = bird_block_size(state.config.field, bx, by, bz);
-                command.fill = fill;
-                command.edge = edge;
-                command.distance_to_camera_sq = 0.0f;
-
-                draw_birds_eye_shell_block_faces(command, bx, by, bz, blocks_x, blocks_y, blocks_z);
-            }
-        }
-    }
-
-    rlEnableBackfaceCulling();
-
-    render_bird_compass(state, camera, labels);
-}
-
-static Cube_Handle pick_local_cube(App_State& state, const Camera3D& camera)
-{
-    Ray ray = GetScreenToWorldRay(GetMousePosition(), camera);
-    Cube_Coords active = cube_coords_from_handle(state.config.field, state.active_cube);
-    float best_distance = 1000000000000.0f;
-    Cube_Handle best_handle = 0;
-
-    int min_x = (int)active.x - LOCAL_RENDER_RADIUS;
-    int max_x = (int)active.x + LOCAL_RENDER_RADIUS;
-    int min_y = (int)active.y - LOCAL_RENDER_RADIUS;
-    int max_y = (int)active.y + LOCAL_RENDER_RADIUS;
-    int min_z = (int)active.z - LOCAL_RENDER_RADIUS;
-    int max_z = (int)active.z + LOCAL_RENDER_RADIUS;
-
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (min_z < 0) min_z = 0;
-    if (max_x >= (int)state.config.field.count_x) max_x = (int)state.config.field.count_x - 1;
-    if (max_y >= (int)state.config.field.count_y) max_y = (int)state.config.field.count_y - 1;
-    if (max_z >= (int)state.config.field.count_z) max_z = (int)state.config.field.count_z - 1;
-
-    for (int z = min_z; z <= max_z; ++z) {
-        for (int y = min_y; y <= max_y; ++y) {
-            for (int x = min_x; x <= max_x; ++x) {
-                RayCollision hit = GetRayCollisionBox(ray, cube_bounds(state.config.field, (uint32_t)x, (uint32_t)y, (uint32_t)z));
-                if (hit.hit && hit.distance < best_distance) {
-                    best_distance = hit.distance;
-                    best_handle = cube_handle_from_coords(state.config.field, (uint32_t)x, (uint32_t)y, (uint32_t)z);
-                }
-            }
-        }
-    }
-
-    return best_handle;
-}
-
-static Cube_Handle pick_bird_cube(App_State& state, const Camera3D& camera)
-{
-    Ray ray = GetScreenToWorldRay(GetMousePosition(), camera);
-    uint32_t blocks_x = block_count_for_axis(state.config.field.count_x);
-    uint32_t blocks_y = block_count_for_axis(state.config.field.count_y);
-    uint32_t blocks_z = block_count_for_axis(state.config.field.count_z);
-
-    float best_distance = 1000000000000.0f;
-    Cube_Handle best_handle = 0;
-
-    for (uint32_t bz = 0; bz < blocks_z; ++bz) {
-        for (uint32_t by = 0; by < blocks_y; ++by) {
-            for (uint32_t bx = 0; bx < blocks_x; ++bx) {
-                int is_shell =
-                    bx == 0 || bx == blocks_x - 1u ||
-                    by == 0 || by == blocks_y - 1u ||
-                    bz == 0 || bz == blocks_z - 1u;
-
-                if (!is_shell) {
-                    continue;
-                }
-
-                Vector3 center = bird_block_center(state.config.field, bx, by, bz);
-                Vector3 size = bird_block_size(state.config.field, bx, by, bz);
-                Vector3 half = Vector3Scale(size, 0.5f);
-
-                BoundingBox box = {};
-                box.min = Vector3Subtract(center, half);
-                box.max = Vector3Add(center, half);
-
-                RayCollision hit = GetRayCollisionBox(ray, box);
-                if (hit.hit && hit.distance < best_distance) {
-                    best_distance = hit.distance;
-                    best_handle = bird_block_source_handle(state.config.field, bx, by, bz);
-                }
-            }
-        }
-    }
-
-    return best_handle;
-}
-
-static void handle_selection(App_State& state, const Camera3D& camera)
-{
-    sdk::Orbit_Camera_State& orbit = state.view_mode == APP_VIEW_LOCAL ? state.local_camera : state.bird_camera;
-
-    if (orbit.wants_cursor_captured) {
-        return;
-    }
-
-    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        return;
-    }
-
-    Cube_Handle picked = 0;
-
-    if (state.view_mode == APP_VIEW_LOCAL) {
-        picked = pick_local_cube(state, camera);
-    } else {
-        picked = pick_bird_cube(state, camera);
-    }
-
-    if (picked != 0) {
-        state.active_cube = picked;
-        state.view_mode = APP_VIEW_LOCAL;
-        state.local_camera.target = cube_center_from_handle(state.config.field, state.active_cube);
-        sdk::orbit_camera_request_capture(state.local_camera, 1);
-        state.local_camera.suppress_mouse_delta = 1;
+    if (!app.cursor.wants_capture && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        Ray ray = GetScreenToWorldRay(GetMousePosition(), app.orbit.camera);
+        Cube_Handle h = app.view_mode == VIEW_LOCAL ? pick_local_cube(app, ray) : pick_birds_eye_cube(app, ray);
+        if (h) switch_to_local(app, h);
     }
 }
 
-static void toggle_view_if_requested(App_State& state)
+static void draw_overlay(Application& app)
 {
-    if (!IsKeyPressed(KEY_G)) {
-        return;
-    }
-
-    if (state.view_mode == APP_VIEW_LOCAL) {
-        state.view_mode = APP_VIEW_BIRDS_EYE;
-        state.bird_camera.target = cube_field_center(state.config.field);
-        sdk::orbit_camera_request_capture(state.bird_camera, 1);
-        state.bird_camera.suppress_mouse_delta = 1;
-    } else {
-        state.view_mode = APP_VIEW_LOCAL;
-        state.local_camera.target = cube_center_from_handle(state.config.field, state.active_cube);
-        sdk::orbit_camera_request_capture(state.local_camera, 1);
-        state.local_camera.suppress_mouse_delta = 1;
-    }
+    Cube_Coords c = cube_coords_from_handle(app.field, app.active_cube);
+    const Cube_Palette& pal = cube_palette(app.palettes, app.palette_index);
+    DrawRectangle(8, 8, 840, app.cursor.wants_capture ? 82 : 108, Color{0,0,0,170});
+    DrawText(TextFormat("FPS %d | %s | palette %u/%u %s | active %u (%u,%u,%u)", GetFPS(), app.view_mode == VIEW_LOCAL ? "local" : "birds-eye", app.palette_index+1u, app.palettes.count, pal.name, app.active_cube, c.x, c.y, c.z), 16, 16, 20, RAYWHITE);
+    DrawText("G: view  |  RMB: capture/select  |  LMB while free: target cube  |  1/2/3: palette  |  local WASD/arrows: snap", 16, 42, 18, LIGHTGRAY);
+    if (!app.cursor.wants_capture) DrawText("cursor free: camera rotation paused; click a cube to retarget, or right-click to resume rotation", 16, 70, 18, YELLOW);
 }
 
-static void update_palette_from_keyboard(App_State& state)
+void application_frame(Application& app)
 {
-    if (IsKeyPressed(KEY_ONE)) {
-        state.active_palette_index = 1u;
-        cube_palette_variant(state.palette, state.active_palette_index);
-    } else if (IsKeyPressed(KEY_TWO)) {
-        state.active_palette_index = 2u;
-        cube_palette_variant(state.palette, state.active_palette_index);
-    } else if (IsKeyPressed(KEY_THREE)) {
-        state.active_palette_index = 3u;
-        cube_palette_variant(state.palette, state.active_palette_index);
-    }
-}
+    handle_keyboard(app);
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) app.cursor.wants_capture = !app.cursor.wants_capture;
 
-void app_default_config(App_Config& config)
-{
-    config = {};
-    config.runtime.title = "Software Cube Field Reference";
-    config.runtime.screen_width = 1920;
-    config.runtime.screen_height = 1080;
-    config.runtime.target_fps = 60;
-    config.runtime.exit_key = KEY_ESCAPE;
+    int focused = IsWindowFocused() ? 1 : 0;
+    sdk::cursor_capture_update(app.cursor, app.cursor.wants_capture, focused);
+    Vector2 mouse_delta = GetMouseDelta();
+    if (!app.cursor.is_captured || app.cursor.suppress_delta) mouse_delta = Vector2{0.0f, 0.0f};
+    float wheel = app.cursor.is_captured ? GetMouseWheelMove() : 0.0f;
+    app.cursor.suppress_delta = 0;
 
-    cube_field_init(config.field, 500, 1000, 100, 1.0f, 5.0f);
-    config.data_seed = 0x1234abcdu;
-    config.frame_arena_bytes = 8u * 1024u * 1024u;
-}
+    const sdk::Orbit_Config& orbit_cfg = app.view_mode == VIEW_LOCAL ? app.config.local.orbit : app.config.birds_eye.orbit;
+    sdk::orbit_camera_update(app.orbit, orbit_cfg, mouse_delta, wheel, app.cursor.is_captured);
+    handle_selection(app);
 
-App_Result app_init(
-    allocators::Allocator& persistent_allocator,
-    App_Config& config,
-    App_State& state)
-{
-    state = {};
-    state.config = config;
-
-    if (state.config.field.total_count == 0) {
-        cube_field_init(state.config.field, 500, 1000, 100, 1.0f, 5.0f);
-    }
-
-    if (state.config.frame_arena_bytes == 0) {
-        state.config.frame_arena_bytes = 8u * 1024u * 1024u;
-    }
-
-    if (sdk::runtime_init(state.runtime, state.config.runtime) != sdk::RUNTIME_SUCCESS) {
-        return APP_ERROR_RUNTIME_INIT;
-    }
-
-    if (cube_data_create(persistent_allocator, state.config.field, state.cube_data) != CUBE_DATA_SUCCESS) {
-        sdk::runtime_shutdown(state.runtime);
-        return APP_ERROR_CUBE_DATA;
-    }
-
-    cube_data_generate(state.config.field, state.cube_data, state.config.data_seed);
-    state.active_palette_index = 1u;
-    cube_palette_variant(state.palette, state.active_palette_index);
-
-    state.frame_memory = allocators::allocator_reserve(persistent_allocator, state.config.frame_arena_bytes, 64);
-    if (!state.frame_memory) {
-        cube_data_destroy(persistent_allocator, state.cube_data);
-        sdk::runtime_shutdown(state.runtime);
-        return APP_ERROR_FRAME_ARENA_ALLOCATION;
-    }
-
-    state.frame_memory_size = state.config.frame_arena_bytes;
-    allocators::arena_init(state.frame_arena, state.frame_memory, state.frame_memory_size);
-
-    state.active_cube = cube_handle_from_coords(
-        state.config.field,
-        state.config.field.count_x / 2u,
-        state.config.field.count_y / 2u,
-        state.config.field.count_z / 2u);
-
-    state.local_camera_config.radians_per_mouse_pixel = 0.0045f;
-    state.local_camera_config.world_units_per_wheel_step = 0.7f;
-    state.local_camera_config.minimum_pitch = -85.0f * DEG2RAD;
-    state.local_camera_config.maximum_pitch = 85.0f * DEG2RAD;
-    state.local_camera_config.minimum_distance = 3.0f;
-    state.local_camera_config.maximum_distance = 80.0f;
-    state.local_camera_config.up = Vector3{ 0.0f, 1.0f, 0.0f };
-    state.local_camera_config.fovy = 70.0f;
-    state.local_camera_config.projection = CAMERA_PERSPECTIVE;
-
-    state.local_camera.target = cube_center_from_handle(state.config.field, state.active_cube);
-    state.local_camera.yaw = 0.0f;
-    state.local_camera.pitch = 30.0f * DEG2RAD;
-    state.local_camera.distance = 22.0f;
-    state.local_camera.wants_cursor_captured = 1;
-    state.local_camera.suppress_mouse_delta = 1;
-
-    Vector3 field_size = cube_field_world_size(state.config.field);
-    float largest_extent = field_size.x;
-    if (field_size.y > largest_extent) largest_extent = field_size.y;
-    if (field_size.z > largest_extent) largest_extent = field_size.z;
-
-    state.bird_camera_config.radians_per_mouse_pixel = 0.0035f;
-    state.bird_camera_config.world_units_per_wheel_step = largest_extent * 0.025f;
-    state.bird_camera_config.minimum_pitch = -85.0f * DEG2RAD;
-    state.bird_camera_config.maximum_pitch = 85.0f * DEG2RAD;
-    state.bird_camera_config.minimum_distance = largest_extent * 0.25f;
-    state.bird_camera_config.maximum_distance = largest_extent * 4.0f;
-    state.bird_camera_config.up = Vector3{ 0.0f, 1.0f, 0.0f };
-    state.bird_camera_config.fovy = 70.0f;
-    state.bird_camera_config.projection = CAMERA_PERSPECTIVE;
-
-    state.bird_camera.target = cube_field_center(state.config.field);
-    state.bird_camera.yaw = 45.0f * DEG2RAD;
-    state.bird_camera.pitch = 70.0f * DEG2RAD;
-    state.bird_camera.distance = largest_extent * 1.5f;
-    state.bird_camera.wants_cursor_captured = 1;
-    state.bird_camera.suppress_mouse_delta = 1;
-
-    state.view_mode = APP_VIEW_LOCAL;
-    state.is_initialized = 1;
-    return APP_SUCCESS;
-}
-
-void app_shutdown(
-    allocators::Allocator& persistent_allocator,
-    App_State& state)
-{
-    if (!state.is_initialized) {
-        return;
-    }
-
-    if (state.frame_memory) {
-        allocators::allocator_release(persistent_allocator, state.frame_memory);
-        state.frame_memory = 0;
-        state.frame_memory_size = 0;
-    }
-
-    cube_data_destroy(persistent_allocator, state.cube_data);
-    sdk::runtime_shutdown(state.runtime);
-    state.is_initialized = 0;
-}
-
-void app_update_and_render(App_State& state)
-{
-    allocators::arena_reset(state.frame_arena);
-
-    toggle_view_if_requested(state);
-    update_palette_from_keyboard(state);
-
-    sdk::Orbit_Camera_State& orbit = state.view_mode == APP_VIEW_LOCAL ? state.local_camera : state.bird_camera;
-    sdk::Orbit_Camera_Config& orbit_config = state.view_mode == APP_VIEW_LOCAL ? state.local_camera_config : state.bird_camera_config;
-
-    if (state.view_mode == APP_VIEW_LOCAL) {
-        orbit.target = cube_center_from_handle(state.config.field, state.active_cube);
-    } else {
-        orbit.target = cube_field_center(state.config.field);
-    }
-
-    sdk::Orbit_Camera_Input camera_input = {};
-    camera_input.mouse_delta = GetMouseDelta();
-    camera_input.wheel_delta = GetMouseWheelMove();
-    camera_input.capture_toggle_pressed = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
-    camera_input.is_window_focused = IsWindowFocused();
-
-    Camera3D camera = {};
-    sdk::orbit_camera_update(orbit_config, camera_input, orbit, camera);
-
-    navigate_active_cube(state, camera);
-    if (state.view_mode == APP_VIEW_LOCAL) {
-        orbit.target = cube_center_from_handle(state.config.field, state.active_cube);
-        derive_camera_from_orbit(orbit_config, orbit, camera);
-    }
-
-    handle_selection(state, camera);
-    if (state.view_mode == APP_VIEW_LOCAL) {
-        state.local_camera.target = cube_center_from_handle(state.config.field, state.active_cube);
-        derive_camera_from_orbit(state.local_camera_config, state.local_camera, camera);
-    }
-
-    sdk::Billboard_Label* label_memory = (sdk::Billboard_Label*)allocators::arena_push(
-        state.frame_arena,
-        sizeof(sdk::Billboard_Label) * (size_t)MAX_BILLBOARD_LABELS,
-        alignof(sdk::Billboard_Label));
-
-    sdk::Billboard_Label_Buffer labels = {};
-    labels.labels = label_memory;
-    labels.capacity = label_memory ? MAX_BILLBOARD_LABELS : 0;
-    labels.count = 0;
-
-    Vector3 field_size = cube_field_world_size(state.config.field);
-    float largest_extent = field_size.x;
-    if (field_size.y > largest_extent) largest_extent = field_size.y;
-    if (field_size.z > largest_extent) largest_extent = field_size.z;
-
-    double near_plane = 0.25;
-    double far_plane = (double)largest_extent * 4.0;
-
-    if (state.view_mode == APP_VIEW_BIRDS_EYE) {
-        near_plane = (double)largest_extent * 0.01;
-        if (near_plane < 25.0) {
-            near_plane = 25.0;
-        }
-
-        far_plane = (double)state.bird_camera.distance + (double)largest_extent * 2.5;
-        if (far_plane < (double)largest_extent * 4.0) {
-            far_plane = (double)largest_extent * 4.0;
-        }
-    }
-
+    Axis_Label bird_labels[6] = {};
     BeginDrawing();
-        ClearBackground(BLACK);
-
-        rlSetClipPlanes(near_plane, far_plane);
-        BeginMode3D(camera);
-            if (state.view_mode == APP_VIEW_LOCAL) {
-                render_local_view(state, camera, state.frame_arena, labels);
-                sdk::draw_billboard_labels_3d(camera, labels);
-            } else {
-                render_birds_eye_view(state, camera, state.frame_arena, labels);
-            }
-        EndMode3D();
-
-        if (state.view_mode == APP_VIEW_BIRDS_EYE) {
-            sdk::draw_billboard_labels_screen_overlay(camera, labels);
-        }
-
-        int y = 6;
-        DrawText(TextFormat("FPS: %i", GetFPS()), 6, y, 18, YELLOW);
-        y += 20;
-        DrawText(state.view_mode == APP_VIEW_LOCAL ? "Mode: LOCAL (G -> birds-eye)" : "Mode: BIRDS-EYE (G -> local)", 6, y, 18, RAYWHITE);
-        y += 20;
-        DrawText(TextFormat("Active cube handle: %u", state.active_cube), 6, y, 18, RAYWHITE);
-        y += 20;
-        DrawText(TextFormat("Palette: %u (1/2/3)", state.active_palette_index), 6, y, 18, RAYWHITE);
-        y += 20;
-        DrawText(orbit.wants_cursor_captured ? "Mouse: captured | Right click to select" : "Mouse: free | Left click cube to target", 6, y, 18, RAYWHITE);
-        y += 20;
-        DrawText("WASD/arrows snap in local view relative to camera angle", 6, y, 18, RAYWHITE);
-
-        if (state.runtime.used_defaults) {
-            DrawText("Runtime used default config values", 6, state.config.runtime.screen_height - 28, 18, YELLOW);
-        }
+    ClearBackground(Color{18, 18, 24, 255});
+    if (app.view_mode == VIEW_LOCAL) sdk::set_clip_planes(app.config.local.clip_near, app.config.local.clip_far); else sdk::set_clip_planes(app.config.birds_eye.clip_near, app.config.birds_eye.clip_far);
+    BeginMode3D(app.orbit.camera);
+    if (app.view_mode == VIEW_LOCAL) render_local_view(app); else { render_birds_eye_shell(app); draw_birds_eye_compass_3d(app, bird_labels); }
+    EndMode3D();
+    if (app.view_mode == VIEW_BIRDS_EYE) draw_birds_eye_compass_labels_2d(app, bird_labels);
+    draw_overlay(app);
     EndDrawing();
+
+    alloc::arena_reset(app.frame_arena);
 }
 
-} // namespace app
+void application_shutdown(Application& app)
+{
+    if (app.cursor.is_captured) EnableCursor();
+    if (app.owns_font) UnloadFont(app.font);
+    cube_data_release(app.data, app.persistent_allocator);
+    alloc::allocator_free(app.persistent_allocator, app.frame_memory);
+    app.frame_memory = 0;
+    sdk::runtime_shutdown(app.runtime);
+}
+
+}

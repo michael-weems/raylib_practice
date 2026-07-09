@@ -1,87 +1,69 @@
 #include "sdk/orbit_camera.h"
 
-#include "raymath.h"
-
 #include <math.h>
 
 namespace sdk {
 
-static float clamp_float(float value, float minimum, float maximum)
+static float clampf(float v, float lo, float hi)
 {
-    if (value < minimum) {
-        return minimum;
-    }
-
-    if (value > maximum) {
-        return maximum;
-    }
-
-    return value;
+    return v < lo ? lo : (v > hi ? hi : v);
 }
 
-void orbit_camera_request_capture(Orbit_Camera_State& state, int should_capture)
+static void orbit_camera_rebuild(Orbit_Camera& orbit, float fovy)
 {
-    state.wants_cursor_captured = should_capture ? 1 : 0;
+    float cp = cosf(orbit.pitch);
+    orbit.camera.position.x = orbit.target.x + sinf(orbit.yaw)*cp*orbit.distance;
+    orbit.camera.position.y = orbit.target.y + sinf(orbit.pitch)*orbit.distance;
+    orbit.camera.position.z = orbit.target.z + cosf(orbit.yaw)*cp*orbit.distance;
+    orbit.camera.target = orbit.target;
+    orbit.camera.up = Vector3{0.0f, 1.0f, 0.0f};
+    orbit.camera.fovy = fovy;
+    orbit.camera.projection = CAMERA_PERSPECTIVE;
 }
 
-Orbit_Camera_Update_Result orbit_camera_update(
-    const Orbit_Camera_Config& config,
-    const Orbit_Camera_Input& input,
-    Orbit_Camera_State& state,
-    Camera3D& camera)
+void cursor_capture_update(Cursor_Capture& cursor, int wants_capture, int window_focused)
 {
-    if (config.minimum_distance > config.maximum_distance ||
-        config.minimum_pitch > config.maximum_pitch) {
-        return ORBIT_CAMERA_INVALID_CONFIG;
+    int should_capture = wants_capture && window_focused;
+    if (should_capture && !cursor.is_captured) {
+        DisableCursor();
+        cursor.suppress_delta = 1;
+    } else if (!should_capture && cursor.is_captured) {
+        EnableCursor();
+    } else if (should_capture && !cursor.was_focused && window_focused) {
+        cursor.suppress_delta = 1;
     }
 
-    if (input.capture_toggle_pressed) {
-        state.wants_cursor_captured = !state.wants_cursor_captured;
-    }
-
-    if (!input.is_window_focused) {
-        if (state.is_cursor_captured) {
-            EnableCursor();
-            state.is_cursor_captured = 0;
-        }
-    } else {
-        if (state.wants_cursor_captured && !state.is_cursor_captured) {
-            DisableCursor();
-            state.is_cursor_captured = 1;
-            state.suppress_mouse_delta = 1;
-        } else if (!state.wants_cursor_captured && state.is_cursor_captured) {
-            EnableCursor();
-            state.is_cursor_captured = 0;
-        }
-    }
-
-    if (state.is_cursor_captured) {
-        if (state.suppress_mouse_delta) {
-            state.suppress_mouse_delta = 0;
-        } else {
-            state.yaw -= input.mouse_delta.x * config.radians_per_mouse_pixel;
-            state.pitch -= input.mouse_delta.y * config.radians_per_mouse_pixel;
-        }
-    }
-
-    state.distance -= input.wheel_delta * config.world_units_per_wheel_step;
-    state.pitch = clamp_float(state.pitch, config.minimum_pitch, config.maximum_pitch);
-    state.distance = clamp_float(state.distance, config.minimum_distance, config.maximum_distance);
-
-    float horizontal_radius = cosf(state.pitch) * state.distance;
-    float vertical_offset = sinf(state.pitch) * state.distance;
-
-    camera.target = state.target;
-    camera.position.x = state.target.x + sinf(state.yaw) * horizontal_radius;
-    camera.position.y = state.target.y + vertical_offset;
-    camera.position.z = state.target.z + cosf(state.yaw) * horizontal_radius;
-    camera.up = config.up;
-    camera.fovy = config.fovy;
-    camera.projection = config.projection;
-
-    state.was_window_focused = input.is_window_focused;
-
-    return ORBIT_CAMERA_UPDATE_SUCCESS;
+    cursor.wants_capture = wants_capture;
+    cursor.is_captured = should_capture;
+    cursor.was_focused = window_focused;
 }
 
-} // namespace sdk
+void orbit_camera_init(Orbit_Camera& orbit, Vector3 target, float yaw, float pitch, float distance, float fovy)
+{
+    orbit.target = target;
+    orbit.yaw = yaw;
+    orbit.pitch = pitch;
+    orbit.distance = distance;
+    orbit_camera_rebuild(orbit, fovy);
+}
+
+void orbit_camera_update(Orbit_Camera& orbit, const Orbit_Config& c, Vector2 mouse_delta, float wheel, int rotate_from_mouse)
+{
+    if (rotate_from_mouse) {
+        orbit.yaw -= mouse_delta.x*c.mouse_sensitivity;
+        orbit.pitch -= mouse_delta.y*c.mouse_sensitivity;
+    }
+
+    orbit.distance -= wheel*c.wheel_speed;
+    orbit.pitch = clampf(orbit.pitch, c.min_pitch, c.max_pitch);
+    orbit.distance = clampf(orbit.distance, c.min_distance, c.max_distance);
+    orbit_camera_rebuild(orbit, c.fovy);
+}
+
+void orbit_camera_retarget(Orbit_Camera& orbit, Vector3 target)
+{
+    orbit.target = target;
+    orbit_camera_rebuild(orbit, orbit.camera.fovy);
+}
+
+}

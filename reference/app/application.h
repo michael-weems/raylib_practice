@@ -1,71 +1,82 @@
-#ifndef REFERENCE_APP_APPLICATION_H
-#define REFERENCE_APP_APPLICATION_H
+#pragma once
 
 #include "allocators/arena_allocator.h"
 #include "app/cube_field.h"
 #include "sdk/orbit_camera.h"
 #include "sdk/runtime.h"
+#include "raylib.h"
 
-#include <stddef.h>
 #include <stdint.h>
 
 namespace app {
 
-enum App_Result {
-    APP_SUCCESS = 0,
-    APP_ERROR_RUNTIME_INIT,
-    APP_ERROR_CUBE_DATA,
-    APP_ERROR_FRAME_ARENA_ALLOCATION
+enum View_Mode {
+    VIEW_LOCAL = 0,
+    VIEW_BIRDS_EYE = 1
 };
 
-enum App_View_Mode {
-    APP_VIEW_LOCAL = 0,
-    APP_VIEW_BIRDS_EYE
+struct Local_View_Config {
+    int render_radius;
+    int text_radius;
+    int grid_fine_radius;
+    int grid_min_major_stride;
+    float clip_near;
+    float clip_far;
+    sdk::Orbit_Config orbit;
 };
 
-struct App_Config {
+struct Birds_Eye_Config {
+    uint32_t block_source_span;
+    float clip_near;
+    float clip_far;
+    float start_distance;
+    sdk::Orbit_Config orbit;
+};
+
+struct Compass_Config {
+    float local_length;
+    float local_radius;
+    float local_label_size;
+    float bird_length_scale;
+    float bird_radius_scale;
+    float bird_label_pixels;
+};
+
+struct Application_Config {
     sdk::Runtime_Config runtime;
-    Cube_Field field;
-    uint32_t data_seed;
-    size_t frame_arena_bytes;
+    Local_View_Config local;
+    Birds_Eye_Config birds_eye;
+    Compass_Config compass;
+    uint32_t field_x;
+    uint32_t field_y;
+    uint32_t field_z;
+    float cube_size;
+    float cube_spacing;
+    size_t frame_arena_size;
 };
 
-struct App_State {
-    sdk::Runtime_State runtime;
-    App_Config config;
-
-    Cube_Data cube_data;
-    Cube_Palette palette;
-    uint32_t active_palette_index;
-
-    sdk::Orbit_Camera_Config local_camera_config;
-    sdk::Orbit_Camera_Config bird_camera_config;
-    sdk::Orbit_Camera_State local_camera;
-    sdk::Orbit_Camera_State bird_camera;
-
-    App_View_Mode view_mode;
-    Cube_Handle active_cube;
-
-    allocators::Arena_Allocator frame_arena;
+struct Application {
+    Application_Config config;
+    alloc::Allocator persistent_allocator;
+    alloc::Arena frame_arena;
     void* frame_memory;
     size_t frame_memory_size;
-
-    int is_initialized;
+    sdk::Runtime_State runtime;
+    sdk::Orbit_Camera orbit;
+    sdk::Cursor_Capture cursor;
+    Cube_Field field;
+    Cube_Data data;
+    Cube_Palette_Table palettes;
+    Cube_Handle active_cube;
+    View_Mode view_mode;
+    uint32_t palette_index;
+    Font font;
+    int owns_font;
 };
 
-void app_default_config(App_Config& config);
+Application_Config application_default_config(void);
+int application_init(Application& app, const Application_Config& config, alloc::Allocator& allocator);
+void application_frame(Application& app);
+void application_shutdown(Application& app);
 
-App_Result app_init(
-    allocators::Allocator& persistent_allocator,
-    App_Config& config,
-    App_State& state);
-
-void app_shutdown(
-    allocators::Allocator& persistent_allocator,
-    App_State& state);
-
-void app_update_and_render(App_State& state);
-
-} // namespace app
-
-#endif // REFERENCE_APP_APPLICATION_H
+}
