@@ -143,6 +143,11 @@ the learner's rebuild.
 - Local compass labels are centered in the arrow shaft gap. Local boundary
   grids use LOD: complete selected boundary lines, dense near the active cube's
   projected coordinates, and coarse major lines in the distance.
+- Local cube-face text keeps radius-three coverage but culls back-facing faces
+  before issuing 3D text draw calls. The three face-text lines are batched into
+  one immediate textured-quad pass per visible face.
+- Local cube geometry batching was attempted, did not improve FPS, and caused
+  alpha regressions; keep local cubes on the simpler per-cube immediate path.
 - `REPORT.md` explains the finished architecture and Graphics Rendering 101.
 - `CURRICULUM.md` is the authoritative rebuild sequence.
 - `3D_SPACE_CURRICULUM.md` is a separate 12-week/60-session mathematics

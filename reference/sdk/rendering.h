@@ -26,6 +26,7 @@ void set_clip_planes(float near_plane, float far_plane);
 void draw_box_faces(Vector3 min, Vector3 max, unsigned int face_mask, Color color);
 void draw_box_edges(Vector3 min, Vector3 max, Color color);
 void draw_text_3d(Font font, const char* text, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& style);
+void draw_text_lines_3d(Font font, const char** lines, int line_count, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& style, float line_step_world);
 void draw_billboard_text_3d(Camera3D camera, Font font, const char* text, Vector3 center, const Text3D_Style& style);
 void draw_arrow_with_gap(Vector3 origin, Vector3 dir, float start_offset, float length, float gap, float radius, Color color);
 

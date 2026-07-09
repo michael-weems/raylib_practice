@@ -31,6 +31,19 @@ static Vector3 text_point(Vector3 origin, Vector3 right, Vector3 up, float x, fl
     return v3_add(v3_add(origin, v3_mul(right, x)), v3_mul(up, -y));
 }
 
+static float text_width_world(Font font, const char* text, float scale, float spacing_world)
+{
+    float x = 0.0f;
+    if (!text) return 0.0f;
+    for (const char* at = text; *at; ++at) {
+        int gi = GetGlyphIndex(font, (unsigned char)*at);
+        Rectangle rec = font.recs[gi];
+        GlyphInfo g = font.glyphs[gi];
+        x += (float)(g.advanceX ? g.advanceX : (int)rec.width)*scale + spacing_world;
+    }
+    return x > 0.0f ? x - spacing_world : 0.0f;
+}
+
 void set_clip_planes(float near_plane, float far_plane)
 {
     rlSetClipPlanes((double)near_plane, (double)far_plane);
@@ -62,17 +75,28 @@ void draw_box_edges(Vector3 mn, Vector3 mx, Color c)
 
 void draw_text_3d(Font font, const char* text, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& s)
 {
-    if (!text || !text[0] || font.texture.id == 0) return;
+    const char* lines[1] = { text };
+    draw_text_lines_3d(font, lines, 1, center, right, up, s, s.font_size_world);
+}
+
+void draw_text_lines_3d(Font font, const char** lines, int line_count, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& s, float line_step_world)
+{
+    if (!lines || line_count <= 0 || font.texture.id == 0 || font.baseSize == 0) return;
     float scale = s.font_size_world/(float)font.baseSize;
-    Vector2 measure = MeasureTextEx(font, text, (float)font.baseSize, s.spacing_world/scale);
-    float w = measure.x*scale, h = measure.y*scale;
-    Vector3 origin = v3_add(v3_sub(center, v3_mul(right, w*0.5f)), v3_mul(up, h*0.5f));
+    float max_width = 0.0f;
+    if (line_step_world <= 0.0f) line_step_world = s.font_size_world*1.25f;
+    for (int i = 0; i < line_count; ++i) {
+        float w = text_width_world(font, lines[i], scale, s.spacing_world);
+        if (w > max_width) max_width = w;
+    }
 
     if (s.draw_background) {
+        float block_height = s.font_size_world + line_step_world*(float)(line_count - 1);
+        Vector3 origin = v3_add(v3_sub(center, v3_mul(right, max_width*0.5f)), v3_mul(up, block_height*0.5f));
         Vector3 a = v3_add(v3_sub(origin, v3_mul(right, s.spacing_world)), v3_mul(up, s.spacing_world));
-        Vector3 b = v3_add(a, v3_mul(right, w + s.spacing_world*2.0f));
-        Vector3 c = v3_sub(b, v3_mul(up, h + s.spacing_world*2.0f));
-        Vector3 d = v3_sub(a, v3_mul(up, h + s.spacing_world*2.0f));
+        Vector3 b = v3_add(a, v3_mul(right, max_width + s.spacing_world*2.0f));
+        Vector3 c = v3_sub(b, v3_mul(up, block_height + s.spacing_world*2.0f));
+        Vector3 d = v3_sub(a, v3_mul(up, block_height + s.spacing_world*2.0f));
         rlSetTexture(0);
         rlBegin(RL_QUADS);
         emit_quad(a, d, c, b, s.background_color);
@@ -82,29 +106,38 @@ void draw_text_3d(Font font, const char* text, Vector3 center, Vector3 right, Ve
     rlSetTexture(font.texture.id);
     rlBegin(RL_QUADS);
 
-    float x = 0.0f;
-    for (const char* at = text; *at; ++at) {
-        int codepoint = (unsigned char)*at;
-        int gi = GetGlyphIndex(font, codepoint);
-        Rectangle rec = font.recs[gi];
-        GlyphInfo g = font.glyphs[gi];
-        float gx = x + (float)g.offsetX*scale;
-        float gy = (float)g.offsetY*scale;
-        float gw = rec.width*scale;
-        float gh = rec.height*scale;
-        Vector3 p0 = text_point(origin, right, up, gx,    gy);
-        Vector3 p1 = text_point(origin, right, up, gx+gw, gy);
-        Vector3 p2 = text_point(origin, right, up, gx+gw, gy+gh);
-        Vector3 p3 = text_point(origin, right, up, gx,    gy+gh);
-        float tx0 = rec.x/(float)font.texture.width, ty0 = rec.y/(float)font.texture.height;
-        float tx1 = (rec.x + rec.width)/(float)font.texture.width, ty1 = (rec.y + rec.height)/(float)font.texture.height;
-        rlColor4ub(s.text_color.r, s.text_color.g, s.text_color.b, s.text_color.a);
-        rlNormal3f(0.0f, 0.0f, 1.0f);
-        rlTexCoord2f(tx0, ty0); rl_vertex(p0);
-        rlTexCoord2f(tx0, ty1); rl_vertex(p3);
-        rlTexCoord2f(tx1, ty1); rl_vertex(p2);
-        rlTexCoord2f(tx1, ty0); rl_vertex(p1);
-        x += (float)(g.advanceX ? g.advanceX : (int)rec.width)*scale + s.spacing_world;
+    for (int line = 0; line < line_count; ++line) {
+        const char* text = lines[line];
+        if (!text || !text[0]) continue;
+        float w = text_width_world(font, text, scale, s.spacing_world);
+        float yoff = ((float)(line_count - 1)*0.5f - (float)line)*line_step_world;
+        Vector3 line_center = v3_add(center, v3_mul(up, yoff));
+        Vector3 origin = v3_add(v3_sub(line_center, v3_mul(right, w*0.5f)), v3_mul(up, s.font_size_world*0.5f));
+
+        float x = 0.0f;
+        for (const char* at = text; *at; ++at) {
+            int codepoint = (unsigned char)*at;
+            int gi = GetGlyphIndex(font, codepoint);
+            Rectangle rec = font.recs[gi];
+            GlyphInfo g = font.glyphs[gi];
+            float gx = x + (float)g.offsetX*scale;
+            float gy = (float)g.offsetY*scale;
+            float gw = rec.width*scale;
+            float gh = rec.height*scale;
+            Vector3 p0 = text_point(origin, right, up, gx,    gy);
+            Vector3 p1 = text_point(origin, right, up, gx+gw, gy);
+            Vector3 p2 = text_point(origin, right, up, gx+gw, gy+gh);
+            Vector3 p3 = text_point(origin, right, up, gx,    gy+gh);
+            float tx0 = rec.x/(float)font.texture.width, ty0 = rec.y/(float)font.texture.height;
+            float tx1 = (rec.x + rec.width)/(float)font.texture.width, ty1 = (rec.y + rec.height)/(float)font.texture.height;
+            rlColor4ub(s.text_color.r, s.text_color.g, s.text_color.b, s.text_color.a);
+            rlNormal3f(0.0f, 0.0f, 1.0f);
+            rlTexCoord2f(tx0, ty0); rl_vertex(p0);
+            rlTexCoord2f(tx0, ty1); rl_vertex(p3);
+            rlTexCoord2f(tx1, ty1); rl_vertex(p2);
+            rlTexCoord2f(tx1, ty0); rl_vertex(p1);
+            x += (float)(g.advanceX ? g.advanceX : (int)rec.width)*scale + s.spacing_world;
+        }
     }
 
     rlEnd();

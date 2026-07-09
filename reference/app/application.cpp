@@ -46,12 +46,18 @@ static int compare_draw_distance_desc(const void* a, const void* b)
     return da < db ? 1 : (da > db ? -1 : 0);
 }
 
+static void draw_command_single(const Local_Draw_Command& cmd)
+{
+    sdk::draw_box_faces(cmd.min, cmd.max, sdk::FACE_ALL, cmd.fill);
+    sdk::draw_box_edges(cmd.min, cmd.max, cmd.edge);
+}
+
 Application_Config application_default_config(void)
 {
     Application_Config c = {};
     c.runtime.screen_width = 1920; c.runtime.screen_height = 1080; c.runtime.target_fps = 60; c.runtime.title = "CPU Software Cube Field";
     c.field_x = 500; c.field_y = 1000; c.field_z = 100; c.cube_size = 1.0f; c.cube_spacing = 5.0f; c.frame_arena_size = 8u*1024u*1024u;
-    c.local.render_radius = 5; c.local.text_radius = 3; c.local.grid_fine_radius = 8; c.local.grid_min_major_stride = 10; c.local.clip_near = 0.01f; c.local.clip_far = 8000.0f;
+    c.local.render_radius = 5; c.local.text_radius = 3; c.local.grid_fine_radius = 5; c.local.grid_min_major_stride = 20; c.local.clip_near = 0.01f; c.local.clip_far = 8000.0f;
     c.local.orbit.mouse_sensitivity = 0.0035f; c.local.orbit.wheel_speed = 1.4f; c.local.orbit.min_pitch = -1.48f; c.local.orbit.max_pitch = 1.48f; c.local.orbit.min_distance = 2.0f; c.local.orbit.max_distance = 80.0f; c.local.orbit.fovy = 60.0f;
     c.birds_eye.block_source_span = 10; c.birds_eye.clip_near = 1.0f; c.birds_eye.clip_far = 40000.0f; c.birds_eye.start_distance = 7200.0f;
     c.birds_eye.orbit.mouse_sensitivity = 0.0030f; c.birds_eye.orbit.wheel_speed = 140.0f; c.birds_eye.orbit.min_pitch = -1.48f; c.birds_eye.orbit.max_pitch = 1.48f; c.birds_eye.orbit.min_distance = 600.0f; c.birds_eye.orbit.max_distance = 30000.0f; c.birds_eye.orbit.fovy = 60.0f;
@@ -146,19 +152,17 @@ static void handle_keyboard(Application& app)
     if (key_pressed2(KEY_A, KEY_LEFT)) navigate_active_cube(app, mul(right, -1.0f));
 }
 
-static void draw_cube_command(const Local_Draw_Command& c)
-{
-    sdk::draw_box_faces(c.min, c.max, sdk::FACE_ALL, c.fill);
-    sdk::draw_box_edges(c.min, c.max, c.edge);
-}
-
 static void draw_text_stack(Font font, const char* a, const char* b, const char* c, Vector3 center, Vector3 right, Vector3 up)
 {
     sdk::Text3D_Style s = {};
     s.font_size_world = 0.140f; s.spacing_world = 0.004f; s.text_color = WHITE;
-    sdk::draw_text_3d(font, a, add(center, mul(up, 0.180f)), right, up, s);
-    sdk::draw_text_3d(font, b, center, right, up, s);
-    sdk::draw_text_3d(font, c, add(center, mul(up, -0.180f)), right, up, s);
+    const char* lines[3] = { a, b, c };
+    sdk::draw_text_lines_3d(font, lines, 3, center, right, up, s, 0.180f);
+}
+
+static int face_text_visible(const Camera3D& camera, Vector3 face_center, Vector3 normal)
+{
+    return dot(normal, sub(camera.position, face_center)) > 0.0f;
 }
 
 static void draw_cube_face_text(Application& app, Cube_Handle h)
@@ -168,12 +172,14 @@ static void draw_cube_face_text(Application& app, Cube_Handle h)
     char id[32]; snprintf(id, sizeof(id), "%u", h);
     const char* value = cube_value_name(cube_value_at(app.data, h));
     float e = 0.012f;
-    draw_text_stack(app.font, id, value, "+x", v3(mx.x+e, mid.y, mid.z), v3(0,0,-1), v3(0,1,0));
-    draw_text_stack(app.font, id, value, "-x", v3(mn.x-e, mid.y, mid.z), v3(0,0, 1), v3(0,1,0));
-    draw_text_stack(app.font, id, value, "+y", v3(mid.x, mx.y+e, mid.z), v3(1,0,0), v3(0,0,-1));
-    draw_text_stack(app.font, id, value, "-y", v3(mid.x, mn.y-e, mid.z), v3(1,0,0), v3(0,0, 1));
-    draw_text_stack(app.font, id, value, "+z", v3(mid.x, mid.y, mx.z+e), v3(1,0,0), v3(0,1,0));
-    draw_text_stack(app.font, id, value, "-z", v3(mid.x, mid.y, mn.z-e), v3(-1,0,0), v3(0,1,0));
+    Vector3 px = v3(mx.x+e, mid.y, mid.z), nx = v3(mn.x-e, mid.y, mid.z), py = v3(mid.x, mx.y+e, mid.z);
+    Vector3 ny = v3(mid.x, mn.y-e, mid.z), pz = v3(mid.x, mid.y, mx.z+e), nz = v3(mid.x, mid.y, mn.z-e);
+    if (face_text_visible(app.orbit.camera, px, v3( 1,0,0))) draw_text_stack(app.font, id, value, "+x", px, v3(0,0,-1), v3(0,1,0));
+    if (face_text_visible(app.orbit.camera, nx, v3(-1,0,0))) draw_text_stack(app.font, id, value, "-x", nx, v3(0,0, 1), v3(0,1,0));
+    if (face_text_visible(app.orbit.camera, py, v3(0, 1,0))) draw_text_stack(app.font, id, value, "+y", py, v3(1,0,0), v3(0,0,-1));
+    if (face_text_visible(app.orbit.camera, ny, v3(0,-1,0))) draw_text_stack(app.font, id, value, "-y", ny, v3(1,0,0), v3(0,0, 1));
+    if (face_text_visible(app.orbit.camera, pz, v3(0,0, 1))) draw_text_stack(app.font, id, value, "+z", pz, v3(1,0,0), v3(0,1,0));
+    if (face_text_visible(app.orbit.camera, nz, v3(0,0,-1))) draw_text_stack(app.font, id, value, "-z", nz, v3(-1,0,0), v3(0,1,0));
 }
 
 static int grid_index_visible(uint32_t i, uint32_t focus, uint32_t count, int fine_radius, int min_major_stride)
@@ -256,13 +262,13 @@ static void render_local_view(Application& app)
         Cube_Value v = cube_value_at(app.data, h);
         Vector3 mn, mx; cube_bounds(app.field, h, mn, mx);
         Local_Draw_Command cmd = {h, mn, mx, pal.fill[v], pal.edge[v], len2(sub(mul(add(mn, mx), 0.5f), app.orbit.camera.position))};
-        if (cmd.fill.a < 255 && transparent) transparent[transparent_count++] = cmd; else draw_cube_command(cmd);
+        if (cmd.fill.a < 255 && transparent) transparent[transparent_count++] = cmd; else draw_command_single(cmd);
     }
 
     if (transparent && transparent_count) {
         qsort(transparent, transparent_count, sizeof(Local_Draw_Command), compare_draw_distance_desc);
         BeginBlendMode(BLEND_ALPHA);
-        for (uint32_t i = 0; i < transparent_count; ++i) draw_cube_command(transparent[i]);
+        for (uint32_t i = 0; i < transparent_count; ++i) draw_command_single(transparent[i]);
         EndBlendMode();
     }
 
