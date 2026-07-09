@@ -40,7 +40,6 @@ int main() {
    camera_config.fovy = 70;
    camera_config.projection = CAMERA_PERSPECTIVE;
 
-
    sdk::Orbit_Camera_State camera_state = {};
    camera_state.distance = 10.0f;
    camera_state.pitch = 30 * DEG2RAD;
@@ -55,9 +54,15 @@ int main() {
 
    auto startup_time = std::chrono::steady_clock::now();
 
-   float x = 0.0f;
-   float y = 0.0f;
+   float text_x = 0.0f;
+   float text_y = 0.0f;
    int font_size = 16;
+
+   int MAX_X{ 7 };
+   int MAX_Y{ 10 };
+   int MAX_Z{ 25 };
+   Vector3 CUBE_SIZE{ 2, 2, 2 };
+   float CUBE_SPACING{ 5.0f };
 
    while (!WindowShouldClose()) {
       auto frame_time = std::chrono::steady_clock::now();
@@ -65,12 +70,6 @@ int main() {
       double total_time = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() / 1000.0;
 
       float dt = GetFrameTime();
-
-      x += dt * 20.0f;
-      y += dt * 20.0f;
-
-      if ((int)x >= config.screen_width) x = 0.0f;
-      if ((int)y >= config.screen_height) y = 0.0f;
 
       sdk::Orbit_Camera_Input camera_input = {}; 
       camera_input.is_window_focused = IsWindowFocused();
@@ -86,6 +85,12 @@ int main() {
          break;
       }
 
+      text_x += dt * 20.0f;
+      text_y += dt * 20.0f;
+
+      if ((int)text_x >= config.screen_width) text_x = 0.0f;
+      if ((int)text_y >= config.screen_height) text_y = 0.0f;
+
       BeginDrawing();
          ClearBackground(BLACK);
 
@@ -95,12 +100,29 @@ int main() {
             DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 10, 0}, RED);
             DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 0, 10}, GREEN);
 
-            DrawCubeV(Vector3{0, 0, 0}, Vector3{2, 2, 2}, YELLOW);
-            DrawCubeWiresV(Vector3{0, 0, 0}, Vector3{2, 2, 2}, MAGENTA);
+            for (int z{ 0 }; z < MAX_Z; ++z) {
+               for (int y{ 0 }; y < MAX_Y; ++y) {
+                  for (int x{ 0 }; x < MAX_X; ++x) {
+                     // 0 1 2 3 4
+                     //     ^
+                     // 0 1 2 3 4 5
+                     //       ^
+
+                     Vector3 p = {};
+                     p.x = CUBE_SPACING * (static_cast<float>(x - (MAX_X / 2)) + (static_cast<float>((MAX_X & 1) == 0) * 0.5f));
+                     p.y = CUBE_SPACING * (static_cast<float>(y - (MAX_Y / 2)) + (static_cast<float>((MAX_Y & 1) == 0) * 0.5f));
+                     p.z = CUBE_SPACING * (static_cast<float>(z - (MAX_Z / 2)) + (static_cast<float>((MAX_Z & 1) == 0) * 0.5f));
+
+                     DrawCubeV(p, CUBE_SIZE, YELLOW);
+                     DrawCubeWiresV(p, CUBE_SIZE, MAGENTA);
+                  }
+               }
+            }
+
          EndMode3D();
 
          std::snprintf(buffer, sizeof(buffer), "seconds: %.2f", total_time);
-         DrawText(buffer, (int)x, (int)y, font_size, RAYWHITE);
+         DrawText(buffer, (int)text_x, (int)text_y, font_size, RAYWHITE);
 
          int y_offset = 5;
          int x_offset = 5;

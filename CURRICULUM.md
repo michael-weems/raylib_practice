@@ -17,15 +17,37 @@ have felt the problem it solves.
 
 ## How we will work together
 
-For each checkpoint:
+Every checkpoint uses a build-first, just-in-time loop:
 
-1. Read only that checkpoint and its linked concepts.
-2. Write down what you expect to see before changing code.
-3. Make the smallest change that can prove the concept.
-4. Build and run the application.
-5. Describe the result, including anything surprising.
-6. Ask me for review or a hint.
-7. Commit the working checkpoint before moving on.
+1. **Build brief:** I give you the concrete runnable outcome, constraints,
+   useful hints, and the smallest relevant references.
+2. **Hands-on attempt:** You begin coding immediately. Exploration and an
+   imperfect first structure are expected.
+3. **Just-in-time help:** Ask questions when you encounter them. I will help
+   without turning the exercise into a finished-code transcription.
+4. **Run and observe:** Build, launch, and report what actually happens.
+5. **Review and repair:** I review the implementation against the checkpoint;
+   you make focused corrections and run it again.
+6. **Reflect afterward:** Once it works, I ask a few questions that connect the
+   code you just wrote to the underlying graphics or architecture concepts.
+7. **Commit:** Preserve the working checkpoint before moving forward.
+
+There is no up-front design gate. We introduce architecture when the code
+creates a reason for it, then reflect on tradeoffs with concrete evidence.
+
+New behavior begins in the simplest working application location. `sdk` is not
+a staging area for speculative abstractions: move code there only after a
+working implementation demonstrates reusable Raylib-specific policy. Extract
+`app` modules when cohesive data and lifecycle ownership have become visible in
+real code. Refactoring is therefore a later checkpoint outcome, not a condition
+for beginning a feature.
+
+Checkpoint card labels follow this order:
+
+- **Challenge** and **Visible finish** define what to build.
+- **Hints** and **Read** are just-in-time support, not required pre-reading.
+- **Reflect after** is discussed only after the attempt runs.
+- **Self-check** is part of review, not homework before coding.
 
 When you ask for help, I will use this hint ladder:
 
@@ -36,8 +58,9 @@ When you ask for help, I will use this hint ladder:
 5. **Worked fragment:** only after you have attempted it or explicitly request
    more direct help.
 
-The goal is productive struggle, not ceremonial suffering. If a checkpoint has
-stopped teaching and has started consuming your afternoon, say so.
+The goal is productive experimentation, not ceremonial suffering. If a
+checkpoint has stopped teaching and has started consuming your afternoon, say
+so and we will increase the specificity of the next hint.
 
 ## Definition of a complete checkpoint
 
@@ -47,8 +70,9 @@ A checkpoint is complete when all of these are true:
 - The executable launches and displays the stated visible result.
 - Closing the window exits normally.
 - Previously completed controls still work.
-- You can explain the main data entering and leaving the new behavior.
-- `git diff --check` is clean.
+- Review finds no correctness or ownership issue that blocks later work.
+- After implementation, you can explain the main data entering and leaving the
+  new behavior.
 - You have made a small checkpoint commit.
 
 At the final integration checkpoint, relevant automated tests must also pass.
@@ -112,7 +136,7 @@ the existing software-renderer build configuration.
 **Visible finish:** A solid-color 1920×1080 window opens, remains responsive,
 and closes cleanly.
 
-**Think about:** Which build declarations describe a target, its current source
+**Reflect after:** Which build declarations describe a target, its current source
 files, and its Raylib dependency? What has become stale since `src/` was
 deleted?
 
@@ -133,7 +157,7 @@ the background or a simple 2D shape.
 **Visible finish:** The window visibly pulses, moves, or changes color while
 remaining responsive.
 
-**Think about:** What belongs before drawing, between frame begin/end, and after
+**Reflect after:** What belongs before drawing, between frame begin/end, and after
 the loop? Why must every frame clear the previous image?
 
 **Hints:** Look for Raylib's frame-time or elapsed-time query. Clamp or wrap the
@@ -151,7 +175,7 @@ without using custom fonts yet.
 **Visible finish:** FPS, a short title, and an exit hint appear over the animated
 background.
 
-**Think about:** Why is an on-screen diagnostic more useful than printing every
+**Reflect after:** Why is an on-screen diagnostic more useful than printing every
 frame to the terminal?
 
 **Hints:** Raylib has a direct FPS helper and a default font. Keep diagnostics
@@ -169,7 +193,7 @@ without changing what appears on screen.
 **Visible finish:** The same animation and overlay run; the window title should
 identify this as the SDK-runtime checkpoint.
 
-**Think about:** What Raylib details are generic to this project, and what state
+**Reflect after:** What Raylib details are generic to this project, and what state
 still belongs to the application? What should an all-zero runtime configuration
 mean?
 
@@ -187,7 +211,7 @@ mean?
 **Visible finish:** A stationary 3D grid and three colored axis lines are
 visible beneath the 2D overlay.
 
-**Think about:** What do camera position, target, up, field of view, and
+**Reflect after:** What do camera position, target, up, field of view, and
 projection each control? Which drawing calls belong inside 3D mode?
 
 **Hints:** Begin with an asymmetric camera position so X, Y, and Z are visually
@@ -218,7 +242,7 @@ origin.
 **Visible finish:** The camera clearly shows a solid cube, its twelve edges, the
 grid, and axis landmarks.
 
-**Think about:** Is the position the cube's center or a corner? How does edge
+**Reflect after:** Is the position the cube's center or a corner? How does edge
 length relate to its bounding box?
 
 **Hints:** Compare a complete cube draw with its wireframe companion. Choose a
@@ -237,7 +261,7 @@ derive the Raylib camera from that state every frame.
 **Visible finish:** A time-driven or keyboard-driven yaw circles the stationary
 cube while always looking at its center.
 
-**Think about:** Which trigonometric components produce horizontal radius and
+**Reflect after:** Which trigonometric components produce horizontal radius and
 vertical height? Why is derived `Camera3D` state preferable to maintaining two
 independent camera representations?
 
@@ -257,7 +281,7 @@ mouse wheel.
 **Visible finish:** Mouse motion rotates smoothly around the cube; wheel input
 zooms without passing through the target or escaping uselessly far away.
 
-**Think about:** Why must pitch and distance be clamped? Why should sensitivity
+**Reflect after:** Why must pitch and distance be clamped? Why should sensitivity
 not depend on absolute cursor position?
 
 **Hints:** Search Raylib for mouse delta rather than deriving it from two cursor
@@ -275,7 +299,7 @@ and remain stable across focus changes.
 **Visible finish:** Captured mode rotates freely; uncaptured mode exposes a
 normal pointer; toggling does not fling the camera.
 
-**Think about:** What mouse delta appears on the first frame after recapture?
+**Reflect after:** What mouse delta appears on the first frame after recapture?
 What happens if the window loses focus while logically captured?
 
 **Hints:** Use Raylib's cursor functions rather than implementing recentering.
@@ -293,7 +317,7 @@ single-cube app remains unchanged.
 **Visible finish:** The cube interaction is identical; the overlay reports
 target, yaw, pitch, distance, and capture state from the new module.
 
-**Think about:** Which inputs should be sampled by the app versus interpreted by
+**Reflect after:** Which inputs should be sampled by the app versus interpreted by
 the camera? Which state is persistent and which `Camera3D` value is derived?
 
 **Hints:** Keep cube knowledge out of the SDK. Required configuration/state
@@ -312,45 +336,30 @@ explain each value, pause here and ask for a conceptual review.
 
 # Phase 3 — From one cube to data-driven fields
 
-This phase replaces hard-coded geometry with compact field data.
+This phase replaces hard-coded geometry with compact field data. Features are
+built directly in the working application first; module extraction happens at
+the end only after the code exposes real boundaries.
 
-## Checkpoint 11 — Application lifecycle and configuration
-
-**Challenge:** Introduce `app` configuration/state and explicit initialize,
-update, render, running, and shutdown functions.
-
-**Visible finish:** The same orbiting cube runs, with window and camera defaults
-coming from one configuration entry point.
-
-**Think about:** What does `main.cpp` need to know after this refactor? Which
-failures are expected startup results rather than exceptions?
-
-**Hints:** Keep `main.cpp` boring. An application result enum can make failure
-messages stable without hidden control flow.
-
-**Read:** `REPORT.md`, sections 6 and 16.
-
-**Self-check:** Force one invalid configuration value and confirm startup fails
-cleanly before restoring it.
-
-## Checkpoint 12 — A tiny cube field
+## Checkpoint 11 — A tiny cube field
 
 **Challenge:** Describe a small field with dimensions, cube size, spacing,
-origin, and count; render it using explicit nested loops.
+and origin; render it directly in the working application using explicit nested
+loops. Do not extract a field or application module yet.
 
 **Visible finish:** A centered `3 × 3 × 3` cube field appears with visible gaps.
 
-**Think about:** Which coordinate should be the innermost loop? What data is
-identical for every cube and therefore belongs in field metadata?
+**Reflect after:** Which coordinate ended up as the innermost loop? Which values
+were identical for every cube?
 
 **Hints:** Begin with integer grid coordinates. Derive world centers during the
-loop instead of storing them.
+loop instead of storing them. It is acceptable for the first working version to
+live in `main.cpp`.
 
 **Read:** `REPORT.md`, sections 8.1 and 8.5.
 
 **Self-check:** Increase one dimension only and identify its world axis.
 
-## Checkpoint 13 — Centering and implicit positions
+## Checkpoint 12 — Centering and implicit positions
 
 **Challenge:** Make arbitrary field dimensions center correctly around the
 world origin without a per-cube position array.
@@ -358,17 +367,17 @@ world origin without a per-cube position array.
 **Visible finish:** Switch among odd and even dimensions; the field remains
 geometrically centered on the axis landmarks.
 
-**Think about:** A row of N centers contains how many intervals? Where should
-the first center be relative to the origin?
+**Reflect after:** A row of N centers contains how many intervals? Where did the
+first center land relative to the origin?
 
-**Hints:** Solve the one-dimensional problem on paper first, then apply it to
-three axes.
+**Hints:** Get one axis working in code, draw it, then reuse the same relationship
+for the other two axes.
 
 **Read:** `REPORT.md`, section 8.1.
 
 **Self-check:** Test dimensions 1, 2, 3, and 4 independently.
 
-## Checkpoint 14 — One-based cube handles
+## Checkpoint 13 — One-based cube handles
 
 **Challenge:** Convert between `(x,y,z)` and a one-based 32-bit handle while
 reserving zero as “no cube.”
@@ -377,9 +386,8 @@ reserving zero as “no cube.”
 visually highlighted cube; changing the highlighted coordinate preserves the
 round trip.
 
-**Think about:** How do you flatten a 3D array with X varying fastest? Where do
-you add or remove the reserved stub offset? What products require 64-bit
-intermediate checks?
+**Reflect after:** How did you flatten the coordinates? Where did you add or
+remove the reserved stub offset?
 
 **Hints:** First derive the zero-based flattening formula. Add the handle rule
 only at the identity boundary.
@@ -388,7 +396,7 @@ only at the identity boundary.
 
 **Self-check:** Test first, last, and out-of-bounds coordinates plus handle zero.
 
-## Checkpoint 15 — Cube values A through D
+## Checkpoint 14 — Cube values A through D
 
 **Challenge:** Define a zero value and A/B/C/D categories, then associate one
 category with each real cube.
@@ -396,8 +404,8 @@ category with each real cube.
 **Visible finish:** The tiny field displays four clearly different fill colors,
 and the overlay identifies the highlighted cube's value.
 
-**Think about:** Why store a category byte instead of a `Color` per cube? Why
-should array index zero contain a real all-zero byte?
+**Reflect after:** What changed when cubes began storing category bytes instead
+of colors? What did the zero slot simplify?
 
 **Hints:** Use a simple provisional pattern first. Keep position and identity
 implicit; only category needs per-cube storage.
@@ -407,7 +415,7 @@ implicit; only category needs per-cube storage.
 **Self-check:** Invalid handles resolve to the zero value without exposing the
 backing pointer as identity.
 
-## Checkpoint 16 — Deterministic value generation
+## Checkpoint 15 — Deterministic value generation
 
 **Challenge:** Replace the provisional pattern with a coordinate-derived hash
 that produces varied A/B/C/D data and repeats across runs.
@@ -415,8 +423,8 @@ that produces varied A/B/C/D data and repeats across runs.
 **Visible finish:** A larger field appears visually mixed; restarting reproduces
 the exact same pattern.
 
-**Think about:** Why can merely taking low bits from a weak coordinate formula
-create stripes? What does an avalanche step accomplish?
+**Reflect after:** Where did visible stripes appear in weaker attempts? What did
+the avalanche step change?
 
 **Hints:** Treat generation as startup work. Hash coordinates, then map a small
 unbiased result range onto the enum.
@@ -426,7 +434,7 @@ unbiased result range onto the enum.
 **Self-check:** Sample coordinates separated by powers of two and inspect their
 distribution.
 
-## Checkpoint 17 — Palette-defined fill and edges
+## Checkpoint 16 — Palette-defined fill and edges
 
 **Challenge:** Separate semantic value from visual style and introduce three
 palettes containing adjacent fill and edge colors.
@@ -434,8 +442,8 @@ palettes containing adjacent fill and edge colors.
 **Visible finish:** Keys 1/2/3 recolor every visible cube and its wireframe
 without changing cube values. D is white at roughly 60% opacity in each palette.
 
-**Think about:** Why are fill and edge colors adjacent? Why does changing one
-palette handle beat rewriting the value array?
+**Reflect after:** Why did keeping fill and edge colors adjacent help? What
+remained unchanged when the active palette changed?
 
 **Hints:** Give palette zero an all-zero style table. Resolve invalid palette or
 value handles to their stubs.
@@ -444,6 +452,29 @@ value handles to their stubs.
 
 **Self-check:** Log or overlay one cube's value before and after palette changes;
 the value must not change.
+
+## Checkpoint 17 — Refactor proven application boundaries
+
+**Challenge:** Now that field configuration, cube identity, values, generation,
+palettes, camera control, update behavior, and rendering all exist, identify the
+boundaries that the working code is asking for. Extract only those proven
+responsibilities into `app` modules and keep reusable Raylib policy in `sdk`.
+
+**Visible finish:** The same colored field and controls run, while `main.cpp`
+becomes a small composition root with explicit initialization, loop, and
+shutdown.
+
+**Reflect after:** Which extraction removed real duplication or ownership
+confusion? Which possible abstraction still lacked enough evidence to create?
+
+**Hints:** Move cohesive working code rather than redesigning it. Preserve data
+layout and call order first; improve names and interfaces only after behavior is
+unchanged.
+
+**Read:** `REPORT.md`, sections 6 and 16, after the first extraction attempt.
+
+**Self-check:** Compare the pre-refactor and post-refactor executable behavior,
+then force one startup failure and confirm shutdown remains safe.
 
 ### Phase 3 gate
 
@@ -464,7 +495,7 @@ and focused mode. Target the orbit camera at the selected cube.
 **Visible finish:** One cube is visibly emphasized, the camera orbits its exact
 center, and the overlay shows its handle/coordinate/value.
 
-**Think about:** Why should the controller store a handle rather than a cube
+**Reflect after:** Why should the controller store a handle rather than a cube
 pointer or duplicate position?
 
 **Hints:** Start by selecting the field's center coordinate during controller
@@ -483,7 +514,7 @@ selected cube, clamped to field bounds.
 **Visible finish:** A local cube neighborhood follows the selection; selecting
 near an edge produces a clipped neighborhood without invalid memory access.
 
-**Think about:** Why compute minimum/maximum once before the hot loops? Where can
+**Reflect after:** Why compute minimum/maximum once before the hot loops? Where can
 unsigned subtraction underflow?
 
 **Hints:** Use wider arithmetic when adding a radius near the maximum coordinate.
@@ -499,7 +530,7 @@ unsigned subtraction underflow?
 **Visible finish:** Box corners disappear, leaving a rounded lattice volume of
 roughly 515 cubes away from boundaries.
 
-**Think about:** Why compare squared distance instead of taking a square root?
+**Reflect after:** Why compare squared distance instead of taking a square root?
 Which differences need signed or wider types?
 
 **Hints:** Keep the clamped box as the enumeration bound; add a cheap acceptance
@@ -518,7 +549,7 @@ values consumed by the app/controller.
 **Visible finish:** Existing camera and palette controls behave identically; an
 overlay can briefly list action names as they fire.
 
-**Think about:** What goes wrong when two systems independently consume mouse
+**Reflect after:** What goes wrong when two systems independently consume mouse
 delta? Which controls are edge-triggered versus continuous?
 
 **Hints:** A bit mask suits simultaneous button actions; mouse delta and wheel
@@ -537,7 +568,7 @@ WASD/arrows, initially in fixed world directions.
 **Visible finish:** Each key snaps the target exactly one cube, never leaving the
 field.
 
-**Think about:** Is navigation changing a world position, a coordinate, or a
+**Reflect after:** Is navigation changing a world position, a coordinate, or a
 handle? Which representation makes bounds checking simplest?
 
 **Hints:** Resolve handle to coordinate, alter one axis, validate, then resolve
@@ -555,7 +586,7 @@ fixed world axes.
 **Visible finish:** After rotating around the target, navigation still moves in
 the direction that looks left/right/forward/back on screen.
 
-**Think about:** What vectors describe camera forward and right? How do you map
+**Reflect after:** What vectors describe camera forward and right? How do you map
 a continuous direction onto one discrete grid axis without diagonal movement?
 
 **Hints:** Ignore vertical contribution for the first version. Compare dominant
@@ -573,7 +604,7 @@ steeply downward or upward.
 **Visible finish:** Near-horizontal views navigate the XZ plane; steep views
 move between cube layers in the direction that feels screen-relative.
 
-**Think about:** What threshold makes vertical intent dominant? How should
+**Reflect after:** What threshold makes vertical intent dominant? How should
 looking up versus down affect the sign?
 
 **Hints:** Base the decision on the camera forward vector, not raw mouse input.
@@ -591,7 +622,7 @@ select the nearest intersected local cube.
 **Visible finish:** Right-click releases the cursor; left-clicking a visible cube
 snaps the target to exactly that cube and recaptures the cursor.
 
-**Think about:** Why must all candidates be tested before selecting? What does
+**Reflect after:** Why must all candidates be tested before selecting? What does
 collision distance solve when boxes overlap on screen?
 
 **Hints:** Test only the same local candidates used by drawing. Derive each
@@ -622,7 +653,7 @@ right/down vectors, axis identity, and short label.
 **Visible finish:** The selected cube draws six small colored normal lines or
 face markers, each labeled in the 2D overlay.
 
-**Think about:** Why should rendering, text, compass, and edge orientation share
+**Reflect after:** Why should rendering, text, compass, and edge orientation share
 one direction definition? What must direction zero contain?
 
 **Hints:** Verify one face at a time. Use the right-hand rule consistently.
@@ -640,7 +671,7 @@ it during shutdown.
 **Visible finish:** Replace the default overlay font with the loaded font and
 show an ownership/resource-ready diagnostic.
 
-**Think about:** Why is font loading startup work? How does partial
+**Reflect after:** Why is font loading startup work? How does partial
 initialization affect shutdown?
 
 **Hints:** Keep Raylib-owned resources in one zero-initializable SDK bundle with
@@ -658,7 +689,7 @@ local right/down basis.
 **Visible finish:** One readable label lies just above a cube surface rather than
 floating as screen text.
 
-**Think about:** How do font pixels become world units? Why does the text need a
+**Reflect after:** How do font pixels become world units? Why does the text need a
 small surface offset? What creates mirrored text?
 
 **Hints:** Solve placement with one short fixed string before dynamic handles.
@@ -677,7 +708,7 @@ cubes within radius three of the selection.
 **Visible finish:** Nearby front-facing cube faces show three compact text lines;
 distant local cubes and back-facing faces do not.
 
-**Think about:** Which text widths repeat and can be measured once? How does a
+**Reflect after:** Which text widths repeat and can be measured once? How does a
 face normal dot camera direction identify a back face?
 
 **Hints:** Submit fills before text. Keep the dynamic handle formatting local to
@@ -696,7 +727,7 @@ cube-field knowledge.
 **Visible finish:** A clearly proportioned +X arrow extends from the selected
 cube.
 
-**Think about:** What inputs make the primitive reusable at both local and
+**Reflect after:** What inputs make the primitive reusable at both local and
 field scale? Which vector should be normalized?
 
 **Hints:** Raylib's cylinder-between-points operation can represent both a
@@ -715,7 +746,7 @@ selected-cube faces.
 **Visible finish:** ±X are blue, ±Y red, and ±Z green, each beginning just beyond
 the selected cube face.
 
-**Think about:** Which dimensions are view configuration versus direction data?
+**Reflect after:** Which dimensions are view configuration versus direction data?
 Why should positive and negative directions share an axis color?
 
 **Hints:** Let the app choose placement/scale and the SDK choose primitive
@@ -733,7 +764,7 @@ correct label facing the camera beside each arrow.
 **Visible finish:** White `+x/-x/+y/-y/+z/-z` labels remain readable through yaw
 and pitch.
 
-**Think about:** Why use one atlas instead of six frame-generated textures? Why
+**Reflect after:** Why use one atlas instead of six frame-generated textures? Why
 is world Y insufficient as billboard up when the camera pitches?
 
 **Hints:** Derive view-up from the camera view basis. Direction zero should map
@@ -751,7 +782,7 @@ the arrowhead intact.
 **Visible finish:** No shaft passes through label text; both local-scale segments
 remain visually continuous around the gap.
 
-**Think about:** Which distances must be clamped when the requested gap is
+**Reflect after:** Which distances must be clamped when the requested gap is
 larger than the available shaft?
 
 **Hints:** Think in scalar distances along a normalized direction before
@@ -770,7 +801,7 @@ patch on that outer plane.
 **Visible finish:** Moving near ±X/±Y/±Z boundaries reveals a local grid patch;
 interior selections show none.
 
-**Think about:** How do two step vectors define a rectangular plane? Why are
+**Reflect after:** How do two step vectors define a rectangular plane? Why are
 bounded patches preferable to entire 500×1000 surfaces?
 
 **Hints:** Treat cell counts and line counts carefully: N cells require N+1
@@ -800,7 +831,7 @@ consumed synchronously by free functions.
 **Visible finish:** The local scene remains unchanged; the overlay reports the
 number of immediate cube/face/text/arrow/grid submissions.
 
-**Think about:** Which values completely describe one draw? What would make the
+**Reflect after:** Which values completely describe one draw? What would make the
 SDK accidentally retained-mode? Which data belongs to the app instead?
 
 **Hints:** A draw function must not store packet pointers after return. Dense
@@ -820,7 +851,7 @@ snapshot of camera, selected handle, and view mode.
 shows a monotonically increasing frame number from orchestration, not retained
 renderer state.
 
-**Think about:** Which data changes every frame? Which data is immutable? Why
+**Reflect after:** Which data changes every frame? Which data is immutable? Why
 should the renderer not own the view controller?
 
 **Hints:** Have the app compose a frame packet after update and before drawing.
@@ -837,7 +868,7 @@ allocate/release callbacks; make zero state inert.
 **Visible finish:** The app still runs, and a startup/overlay diagnostic confirms
 the allocator is valid and reports persistent bytes acquired.
 
-**Think about:** Why pass size and alignment to release? Why is callback
+**Reflect after:** Why pass size and alignment to release? Why is callback
 indirection acceptable at ownership boundaries but not per cube?
 
 **Hints:** Build a default aligned-heap adapter first. Keep allocation policy out
@@ -856,7 +887,7 @@ the same policy.
 **Visible finish:** The local field looks identical; the overlay reports value
 capacity, approximate MiB, and alignment.
 
-**Think about:** Why does capacity include the stub? Why does aligned storage not
+**Reflect after:** Why does capacity include the stub? Why does aligned storage not
 justify scanning the entire dataset each frame?
 
 **Hints:** Allocation and generation belong at initialization, not rendering.
@@ -874,7 +905,7 @@ allocation, expose it through `Allocator`, and reset it after each frame.
 **Visible finish:** Allocate a small per-frame diagnostic buffer from the arena;
 display used bytes and preserved high-water mark while the scene runs.
 
-**Think about:** What pointer lifetimes end at reset? Why should individual arena
+**Reflect after:** What pointer lifetimes end at reset? Why should individual arena
 release be a no-op? What overflow checks does alignment rounding require?
 
 **Hints:** The arena should never acquire its own backing memory and should never
@@ -893,7 +924,7 @@ capacity from public configuration before the application allocates its arena.
 **Visible finish:** Startup displays required scratch bytes; per-frame high-water
 use stays within that bound.
 
-**Think about:** What focused and birds-eye workloads determine the maximum?
+**Reflect after:** What focused and birds-eye workloads determine the maximum?
 Which arithmetic products can overflow before conversion to `size_t`?
 
 **Hints:** Requirement functions describe memory but do not allocate it. The
@@ -924,7 +955,7 @@ several angles.
 **Visible finish:** Transparent D cubes are visible, including any incorrect
 faces or ordering artifacts you can reproduce and describe.
 
-**Think about:** What does alpha blending combine? Why can opaque depth logic
+**Reflect after:** What does alpha blending combine? Why can opaque depth logic
 produce surprising transparent results? Does a whole-cube helper issue color in
 the way `rlsw` expects?
 
@@ -944,7 +975,7 @@ without changing vendor code.
 **Visible finish:** No cube has only one transparent triangle/face while the
 rest remains opaque.
 
-**Think about:** At what primitive boundary does color/alpha state need to be
+**Reflect after:** At what primitive boundary does color/alpha state need to be
 reissued? Why is a six-quad application workaround acceptable here?
 
 **Hints:** Inspect the local `rlsw` behavior only to understand the contract;
@@ -963,7 +994,7 @@ depth, sort far-to-near, and submit after opaque fills with depth writes off.
 **Visible finish:** Overlapping transparent cubes blend consistently while
 opaque cubes still occlude them correctly.
 
-**Think about:** Why is the command array still immediate-mode? Why sort faces
+**Reflect after:** Why is the command array still immediate-mode? Why sort faces
 rather than cube centers? Why retain depth testing but disable depth writes?
 
 **Hints:** Use an in-place algorithm over the arena array; no STL container or
@@ -993,7 +1024,7 @@ and a target at field center.
 **Visible finish:** `G` switches between focused cubes and a distant view of a
 wireframe field-bounds box; camera rotation and wheel zoom work in both.
 
-**Think about:** Which controller state is shared between modes? Which camera
+**Reflect after:** Which controller state is shared between modes? Which camera
 settings differ? Should switching reconstruct the controller or apply a preset?
 
 **Hints:** Keep selected cube identity while changing target/preset. Use the
@@ -1012,7 +1043,7 @@ the six exterior surfaces.
 **Visible finish:** Birds-eye mode shows a hollow colored shell; focused mode is
 unchanged.
 
-**Think about:** How can face loops avoid submitting corner/edge cells multiple
+**Reflect after:** How can face loops avoid submitting corner/edge cells multiple
 times? Why is rendering the whole small volume useful only as a temporary
 comparison?
 
@@ -1032,7 +1063,7 @@ every 32 cells while always representing both endpoints.
 **Visible finish:** Birds-eye mode shows a dramatically coarser shell whose
 opposite outer faces still align with the intended field bounds.
 
-**Think about:** Why does ordinary integer stepping often miss the last source
+**Reflect after:** Why does ordinary integer stepping often miss the last source
 coordinate? How do sample count and interval count differ?
 
 **Hints:** Separate virtual sample coordinates from original source coordinates.
@@ -1052,7 +1083,7 @@ without gaps or overlap, independent of source aspect ratio.
 **Visible finish:** The coarse shell looks like one continuous box with no
 interpenetrating cubes or inset outer edge.
 
-**Think about:** Which distance should equal representative edge length? Why
+**Reflect after:** Which distance should equal representative edge length? Why
 should visual lattice placement be separate from sampled source placement?
 
 **Hints:** Derive representative spacing from source stride and field spacing,
@@ -1070,7 +1101,7 @@ allow uncaptured clicks to select that source identity.
 **Visible finish:** The shell shows a mixed deterministic palette; clicking a
 representative enters focused mode on the corresponding real cube.
 
-**Think about:** Why must drawing and picking share the exact same lattice math?
+**Reflect after:** Why must drawing and picking share the exact same lattice math?
 What identity should a virtual representative return?
 
 **Hints:** Do not create a retained representative array. Re-enumerate the same
@@ -1088,7 +1119,7 @@ assign every visible shell edge to exactly one face.
 **Visible finish:** No interior/coincident faces are drawn, shared lines do not
 fight, and the shell remains stable when rotation stops.
 
-**Think about:** Which four local edge bits describe a face? How do coplanar
+**Reflect after:** Which four local edge bits describe a face? How do coplanar
 neighbors and perpendicular shell faces decide ownership deterministically?
 
 **Hints:** First remove internal faces. Then solve coplanar shared lines. Finally
@@ -1110,7 +1141,7 @@ tests for the core invariants accumulated throughout the curriculum.
 focused and birds-eye views, navigation, picking, palettes, transparency, text,
 compasses, boundary grids, and 30+ FPS software rendering.
 
-**Think about:** Which visual features scale with selected cube, virtual shell,
+**Reflect after:** Which visual features scale with selected cube, virtual shell,
 camera distance, or screen resolution? Which mathematical rules deserve tests?
 Where is the actual frame time spent?
 
@@ -1255,13 +1286,13 @@ Update the status column as you work. Use `not started`, `working`, `review`, or
 | 8 | Mouse orbit/zoom | complete | | Build/review passed; mouse orbit and clamped wheel zoom. |
 | 9 | Cursor capture | complete | | Review passed; transition-only capture, focus recovery, and delta suppression. |
 | 10 | Orbit SDK | complete | | Build/review passed; reusable orbit policy integrated with raw app input. |
-| 11 | App lifecycle | not started | | |
-| 12 | Tiny field | not started | | |
-| 13 | Implicit centering | not started | | |
-| 14 | Cube handles | not started | | |
-| 15 | Cube values | not started | | |
-| 16 | Deterministic generation | not started | | |
-| 17 | Palettes and edges | not started | | |
+| 11 | Tiny field | not started | | |
+| 12 | Implicit centering | not started | | |
+| 13 | Cube handles | not started | | |
+| 14 | Cube values | not started | | |
+| 15 | Deterministic generation | not started | | |
+| 16 | Palettes and edges | not started | | |
+| 17 | Proven-boundary refactor | not started | | |
 | 18 | Selected cube | not started | | |
 | 19 | Focused region | not started | | |
 | 20 | Radius culling | not started | | |
@@ -1300,9 +1331,10 @@ Update the status column as you work. Use `not started`, `working`, `review`, or
 
 When you are ready, tell me:
 
-> I am starting Checkpoint 1. Help me inspect the current CMake target and decide
-> what the minimum runnable source set should contain. Use the hint ladder and do
-> not give me finished code.
+> I am starting Checkpoint 1. Give me the concrete runnable target, constraints,
+> useful hints, and relevant references. I will start coding immediately and ask
+> questions as I encounter them; review and reflection come afterward.
 
 I will coach that checkpoint only. We will move to Checkpoint 2 after you can
-build, launch, explain, and commit the first software-rendered window.
+build, launch, review, reflect on, and commit the first software-rendered
+window.

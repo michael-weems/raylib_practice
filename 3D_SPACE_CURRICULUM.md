@@ -9,8 +9,9 @@ main software-renderer project.
 
 The assumed starting point is a working Raylib application with a frame loop.
 Each session should fit in about 30 minutes and end with a visible, runnable
-result. The goal is not to memorize formulas. The goal is to predict what a
-formula will draw, test it, and explain any difference.
+result. The goal is not to memorize formulas or solve the design on paper first.
+The goal is to build a small experiment, observe it, perturb it, and explain the
+mathematics afterward.
 
 ## Schedule
 
@@ -25,10 +26,19 @@ Spacing and recall are part of the training.
 
 ## The 30-minute routine
 
-1. **Predict — 3 minutes.** Sketch axes and predict the result before coding.
-2. **Build — 18 minutes.** Implement only the day's small visual experiment.
-3. **Perturb — 6 minutes.** Change signs, magnitudes, or one axis at a time.
-4. **Explain — 3 minutes.** Write two sentences: what happened and why.
+1. **Launch — 2 minutes.** Read the visible build target and start in the
+   working Raylib project. Do not wait for a complete paper design.
+2. **Build — 18 minutes.** Implement the smallest visual experiment that can
+   expose the day's concept.
+3. **Debug and perturb — 7 minutes.** Ask for a hint if blocked; otherwise
+   change signs, magnitudes, or one axis at a time and observe the result.
+4. **Reflect — 3 minutes.** After it runs, write two sentences explaining what
+   happened and why.
+
+The coaching loop is build-first: I provide the day's target, constraints,
+hints, and references; you code; I answer questions just in time; then I review
+the result and ask reflection questions. Prediction is a useful experiment
+during perturbation, not an entrance exam before coding.
 
 If stuck, use this hint ladder:
 
@@ -45,10 +55,12 @@ If stuck, use this hint ladder:
 - Use radians internally. Convert degrees only at user-facing boundaries.
 - Multiply rates by `GetFrameTime()`.
 - Draw axes, points, vectors, normals, and intermediate constructions.
-- Change one variable at a time and predict the effect first.
+- Change one variable at a time, observe the effect, and explain it afterward.
 - Use plain structs, free functions, and explicit loops.
 - Avoid hidden state and avoid storing both authoritative and derived values.
 - Implement important math once yourself, then compare with `raymath.h`.
+- Keep each new experiment local until repetition or a clear reusable boundary
+  gives you a concrete reason to extract it.
 - Commit or save one small source snapshot per completed week.
 
 ## Coordinate conventions used here
@@ -868,8 +880,8 @@ Read only the smallest relevant example after attempting the exercise:
 
 # Progress ledger
 
-Mark a day complete only after the program runs and you write the two-sentence
-explanation.
+Mark a day complete only after the program runs, has been reviewed, and you
+write the short reflection.
 
 | Week | Days | Status | Notes |
 |---:|---|---|---|
@@ -891,6 +903,7 @@ explanation.
 When beginning this companion track in a separate session, use:
 
 > I am starting Day 1 of `3D_SPACE_CURRICULUM.md`. Coach only this 30-minute
-> exercise. Ask me to predict the result before I code, use the hint ladder,
-> and do not give me the finished implementation unless I explicitly ask.
+> exercise. Give me the visible target, constraints, hints, and references so I
+> can start coding immediately. Answer questions just in time, then review my
+> work and ask reflection questions after it runs.
 

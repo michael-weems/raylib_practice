@@ -9,9 +9,10 @@ cube-field application from scratch. The durable staged plan is
 `CURRICULUM.md`. Work on one checkpoint at a time; every checkpoint must leave
 an executable that launches and displays a visible result.
 
-The complete prior implementation is preserved by Git tag `baseline`. Current
-`master` is the learner's rebuild. Treat `baseline` as a rubric and recovery
-reference, not as code to copy before attempting a checkpoint.
+The original reference history/tag was accidentally overwritten. A regenerated
+reference source tree now lives under `reference/`; treat it as the recovery
+rubric, not as code to copy before attempting a checkpoint. Current `master` is
+the learner's rebuild.
 
 ## Current progress
 
@@ -49,28 +50,35 @@ reference, not as code to copy before attempting a checkpoint.
   right-click, focus loss releases physical capture without changing the
   desired mode, focus regain restores it, and one synthetic delta is discarded
   after capture.
-- Checkpoint 10 is complete and reviewed: `sdk/orbit_camera` owns reusable
+- Checkpoint 10 is complete and reviewed (`35a7191` in the current history): `sdk/orbit_camera` owns reusable
   orbit policy, cursor transitions, delta suppression, clamping, and Raylib
   `Camera3D` derivation while the app samples raw Raylib input. The integrated
-  app builds and preserves the interactive cube scene. These changes are not
-  yet committed.
-- Checkpoint 11, application lifecycle and configuration, is next. Resume from
-  `CURRENT_STEP.md` and coach only that scope.
+  app builds and preserves the interactive cube scene.
+- Checkpoint 11 has been redefined as a direct tiny-field feature under the
+  build-first coaching model. Application-module extraction is deferred to
+  Checkpoint 17, after field data creates real refactoring pressure. Resume
+  from `CURRENT_STEP.md`.
 
 ## Coaching contract
 
-- Teach concepts and ask diagnostic/design questions before giving solutions.
-- Give goals, constraints, relevant APIs, documentation, and graduated hints.
-- Do not provide exact implementation steps or finished code unless the user
-  explicitly asks after making an attempt.
-- Review the user's work against the current curriculum checkpoint only; avoid
-  pulling later architecture forward prematurely.
+- Use a build-first, just-in-time loop for every curriculum: give a concrete
+  runnable target, constraints, useful hints, and references, then let the
+  learner begin coding immediately.
+- Do not require up-front classification, design quizzes, or attempts to get
+  the architecture right on the first try.
+- New behavior starts in the simplest working application location. Extract an
+  `sdk` or `app` module only after working code demonstrates reuse, duplication,
+  ownership pressure, or a stable policy boundary.
+- While the learner works, answer questions with graduated hints and avoid
+  finished code unless explicitly requested.
+- Review the working attempt against the checkpoint, let the learner repair it,
+  and ask conceptual/reflection questions only after the executable works.
 - Keep each checkpoint small, buildable, runnable, and visually inspectable.
+  Formatting-only whitespace is not a completion blocker.
 - Encourage a commit after each passing checkpoint.
-- Use the `baseline` comparison only after the user's version works, or when the
-  user explicitly requests it.
-- Preserve the user's code and learning decisions. Diagnose before editing;
-  implement only when asked.
+- Use `baseline` only after the learner's version works or when requested.
+- Preserve the learner's code and decisions. Diagnose before editing; implement
+  only when asked.
 
 ## Final target
 
@@ -113,7 +121,21 @@ reference, not as code to copy before attempting a checkpoint.
 
 ## Repository state and tools
 
-- `baseline` points to the finished reference implementation and report.
+- `reference/` contains the regenerated C++ reference implementation source.
+- `reference/CMakeLists.txt` builds that source as an independent project and
+  links its own Raylib target from `vendor/raylib`; it does not depend on `src`.
+- `reference/make` configures/builds `reference/CMakeLists.txt` into
+  `out/reference-build` and runs `reference_software_renderer.exe`.
+- Reference repair pass: cube face text is real 3D face text, compass labels
+  are depth-tested billboards, keys 1/2/3 switch palettes, and birds-eye uses
+  widened clip planes.
+- Birds-eye compass labels use a larger explicit billboard label size and a
+  black 3D billboard background; local compass labels remain smaller/no-bg.
+- Birds-eye stability rule: render only outward-facing shell faces, not whole
+  sampled cubes, with no wires/transparent sorting; this avoids hidden coplanar
+  faces and RLSW flicker/tearing. Birds-eye label backgrounds render as 2D
+  screen overlays after the 3D pass, and far-side compass labels are not pushed
+  into the overlay buffer.
 - `REPORT.md` explains the finished architecture and Graphics Rendering 101.
 - `CURRICULUM.md` is the authoritative rebuild sequence.
 - `3D_SPACE_CURRICULUM.md` is a separate 12-week/60-session mathematics
