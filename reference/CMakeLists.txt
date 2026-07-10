@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 
 project(reference_software_renderer LANGUAGES C CXX)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -58,6 +60,7 @@ target_link_libraries(reference_core_tests PRIVATE raylib)
 if(MSVC)
   target_compile_options(reference_core_tests PRIVATE /W4)
 endif()
+add_test(NAME reference_core COMMAND reference_core_tests)
 
 add_custom_command(
   TARGET reference_software_renderer

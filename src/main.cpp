@@ -58,9 +58,9 @@ int main() {
    float text_y = 0.0f;
    int font_size = 16;
 
-   int MAX_X{ 7 };
-   int MAX_Y{ 10 };
-   int MAX_Z{ 25 };
+   int MAX_X{ 5 };
+   int MAX_Y{ 7 };
+   int MAX_Z{ 8 };
    Vector3 CUBE_SIZE{ 2, 2, 2 };
    float CUBE_SPACING{ 5.0f };
 

@@ -6,7 +6,14 @@ namespace sdk {
 
 static float clampf(float v, float lo, float hi)
 {
-    return v < lo ? lo : (v > hi ? hi : v);
+    if (v < lo) {
+        return lo;
+    }
+    if (v > hi) {
+        return hi;
+    }
+
+    return v;
 }
 
 static void orbit_camera_rebuild(Orbit_Camera& orbit, float fovy)

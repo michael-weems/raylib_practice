@@ -98,6 +98,9 @@ the learner's rebuild.
 - No application classes, inheritance, RAII ownership, exceptions, STL
   containers, smart pointers, templates, lambdas, or iterator-style loops.
 - Explicit for-loops and compact, sequential hot data.
+- "Wide code" means descriptive identifiers and clear horizontal expression;
+  do not pack multiple statements or branch bodies onto one line.
+- Avoid ternary operators; prefer explicit control flow for readability.
 - Required borrowed inputs use references. Pointers represent backing memory,
   C strings/callback contexts, or pointer-plus-count streams.
 - Public state supports safe zero initialization and explicit shutdown.
@@ -121,6 +124,16 @@ the learner's rebuild.
 
 ## Repository state and tools
 
+- Prefer the repo PowerShell tooling for future work:
+  `tools\build-src.ps1`, `tools\build-reference.ps1 -RunTests`,
+  `tools\check-builds.ps1`, `tools\scan-repo.ps1`,
+  `tools\changed-files.ps1`, `tools\format.ps1 -List`, and
+  `tools\smoke-test.ps1 -App src -NoLaunch`.
+- `tools\check-builds.ps1` builds `src`, builds `reference`, and runs the
+  registered reference tests through CTest. `clang-format` is not currently on
+  PATH, so `tools\format.ps1 -List` works but real format checks need the tool.
+- There may be unrelated in-progress reference implementation changes in the
+  worktree; treat them as user/current-work changes and do not revert them.
 - `reference/` contains the regenerated C++ reference implementation source.
   It was rewritten fresh after the prior reference was deleted, preserving the
   independent build files and tests while folding in the cleanup review:

@@ -15,7 +15,9 @@ static int expect_int(int actual, int expected, const char* label)
 static int expect_float(float actual, float expected, const char* label)
 {
     float diff = actual - expected;
-    if (diff < 0.0f) diff = -diff;
+    if (diff < 0.0f) {
+        diff = -diff;
+    }
 
     if (diff > 0.0001f) {
         fprintf(stderr, "FAIL %s: actual=%f expected=%f\n", label, actual, expected);
@@ -62,5 +64,9 @@ int main(void)
     failures += expect_int((int)app::cube_value_at(empty_data, app::CUBE_HANDLE_STUB), (int)app::CUBE_VALUE_NONE, "zero data returns stub value");
     failures += expect_int((int)app::cube_handle_from_world(empty_field, Vector3{0, 0, 0}), (int)app::CUBE_HANDLE_STUB, "zero field world lookup returns stub handle");
 
-    return failures ? 1 : 0;
+    if (failures) {
+        return 1;
+    }
+
+    return 0;
 }
