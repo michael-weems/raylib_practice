@@ -1286,8 +1286,8 @@ Update the status column as you work. Use `not started`, `working`, `review`, or
 | 8 | Mouse orbit/zoom | complete | | Build/review passed; mouse orbit and clamped wheel zoom. |
 | 9 | Cursor capture | complete | | Review passed; transition-only capture, focus recovery, and delta suppression. |
 | 10 | Orbit SDK | complete | | Build/review passed; reusable orbit policy integrated with raw app input. |
-| 11 | Tiny field | not started | | |
-| 12 | Implicit centering | not started | | |
+| 11 | Tiny field | complete | | Build/review passed; field renders from explicit nested loops without storing positions. |
+| 12 | Implicit centering | complete | | Build/review passed; arbitrary even/odd dimensions stay centered around world origin. |
 | 13 | Cube handles | not started | | |
 | 14 | Cube values | not started | | |
 | 15 | Deterministic generation | not started | | |

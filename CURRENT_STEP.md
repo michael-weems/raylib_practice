@@ -2,73 +2,119 @@
 
 ## Resume here
 
-Checkpoints 1 through 10 are complete. Checkpoint 11 is now **A tiny cube
-field**. The premature application-lifecycle refactor has moved to Checkpoint
-17, after working field data provides evidence for useful boundaries.
+Checkpoints 1 through 12 are complete. Checkpoint 13 is **One-based cube
+handles**.
 
-Build the feature directly in the current application. Do not create `app`
-modules in this checkpoint.
+You already render an arbitrary even/odd cube field centered around world
+origin by deriving cube centers inside the render loops. Now add a compact,
+stable identity for a cube: a one-based integer handle.
+
+Keep the work in the current application for this checkpoint. Do not create an
+`app` module yet.
+
+## Concept
+
+A handle is an integer identity that refers to something stored or implied
+elsewhere. In this project, handle `0` means "no cube" or "invalid cube."
+Every real cube starts at handle `1`.
+
+This lets future code pass around cube identity without passing pointers,
+without needing `nullptr` checks, and without storing world positions. Later,
+when we add a value array, index `0` can be a harmless all-zero stub and real
+cube values can live at indexes `1..cube_count`.
+
+For now, the cube positions are still implicit. The handle exists only as a
+reversible identity for `(x, y, z)`.
 
 ## Build brief
 
-Replace the single hard-coded cube with a small cube field rendered using three
-explicit nested loops.
+Add helper logic that can:
 
-Start with these values:
+- convert a valid `(x, y, z)` grid coordinate into a one-based cube handle;
+- convert a valid one-based cube handle back into `(x, y, z)`;
+- treat handle `0` as invalid / no cube;
+- reject out-of-bounds coordinates without producing a real handle.
 
-- dimensions: `3 × 3 × 3`;
-- cube dimensions: keep the current visible cube size initially;
-- spacing: choose a center-to-center distance that leaves obvious gaps;
-- field center: world origin.
+Then choose one highlighted cube coordinate, convert it to a handle, convert the
+handle back to coordinates, and draw that cube with a distinct fill/wire color.
 
-For each integer grid coordinate, derive a world-space center and call the same
-filled-cube and wire-cube Raylib drawing functions already used by the app.
-Do not allocate or store a position per cube.
+Show the highlighted cube's handle and recovered coordinate in the 2D overlay.
 
 ## Visible finish
 
-The executable shows 27 evenly spaced cubes centered around the origin. Orbit,
-zoom, cursor capture, grid, axes, animation, and diagnostics continue working.
+The executable shows the same centered cube field, but one cube is visibly
+highlighted.
 
-Temporarily change one dimension, such as X from 3 to 5, and verify only the
-expected world axis grows. Restore `3 × 3 × 3` afterward.
+The overlay reports something like:
+
+```text
+selected handle: 137
+selected coord:  1, 3, 4
+round trip:      ok
+```
+
+Changing the chosen highlighted coordinate should move the highlight to the
+expected cube and still report a valid round trip.
 
 ## Constraints
 
-- Keep this first implementation near the current drawing code.
-- Use ordinary integer loop variables and explicit `for` loops.
-- Derive positions during rendering; no position array and no allocation.
-- Preserve the existing SDK interfaces; no new SDK abstraction is justified by
-  this feature yet.
+- Use a 32-bit unsigned integer type for cube handles.
+- Reserve handle `0`; real handles begin at `1`.
+- Use explicit arithmetic and explicit `for` loops.
+- Do not allocate.
+- Do not store per-cube positions.
+- Do not introduce an `app` module yet.
+- Keep the current SDK interfaces unchanged.
 - Keep the project runnable throughout the attempt.
+- Avoid ternary operators.
 
 ## Just-in-time hints
 
-- Solve the center coordinate for the sequence `-1, 0, +1` first.
-- A cube's world center is its centered integer coordinate multiplied by the
-  center-to-center spacing.
-- Keep X, Y, and Z visibly distinguishable using the existing axis lines.
-- If the field looks like one solid block, spacing is smaller than or equal to
-  the cube width.
+- First solve the zero-based flattening formula for `(x, y, z)`.
+- Decide which axis is contiguous in memory. The current render loop has `x` as
+  the innermost loop, so making X contiguous will match the hot-loop direction.
+- A common zero-based formula shape is:
+
+  ```cpp
+  flat = x + (y * width_x) + (z * width_x * width_y);
+  ```
+
+- The one-based handle rule is only the final identity wrapper:
+
+  ```cpp
+  handle = flat + 1;
+  flat = handle - 1;
+  ```
+
+- To recover coordinates from `flat`, peel the dimensions back off with
+  division and remainder.
+- Test the first cube, last cube, and handle zero mentally before trusting the
+  overlay.
 
 ## References if blocked
 
-- Current `DrawCubeV` and `DrawCubeWiresV` calls in `src/main.cpp`.
-- `vendor/raylib/examples/models/models_geometric_shapes.c`.
-- `REPORT.md`, sections 8.1 and 8.5, only if the centering relationship is
-  unclear after trying it visually.
+- `REPORT.md`, section 8.2 for one-based handles and zero stubs.
+- `src/main.cpp` render loops, especially the current `x/y/z` order.
+- `CURRICULUM.md`, Checkpoint 13.
 
 ## Review target
 
-Submit the running implementation when ready. Review will check cube count,
-centering, axis mapping, spacing, explicit loops, absence of stored positions,
-and preservation of existing controls. Reflection follows the working review.
+Submit the running implementation when ready. Review will check:
+
+- handle `0` is never treated as a real cube;
+- first and last valid coordinates round-trip correctly;
+- out-of-bounds coordinates fail safely;
+- the highlighted cube uses the recovered coordinate, not the original literal;
+- existing orbit, zoom, cursor capture, grid, axes, field centering, and overlay
+  still work.
+
+Reflection follows after the executable works.
 
 ## Resume prompt
 
-> I am implementing the revised Checkpoint 11 from `CURRENT_STEP.md`: a direct
-> `3 × 3 × 3` cube field. I will ask for hints if blocked and submit the running
-> result for review.
+> I am implementing Checkpoint 13 from `CURRENT_STEP.md`: one-based cube
+> handles with a visible highlighted cube and overlay round-trip diagnostics.
+> I will ask for hints if blocked and submit the running result for review.
 
-After Checkpoint 11 passes, update the ledger and move to centering arbitrary
-odd/even dimensions in Checkpoint 12 using the same build-first model.
+After Checkpoint 13 passes, update the ledger and move to Checkpoint 14: cube
+values A/B/C/D.

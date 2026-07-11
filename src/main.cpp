@@ -5,9 +5,57 @@
 #include "sdk/orbit_camera.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <iostream>
 #include <cmath>
+
+int MAX_X{ 5 };
+int MAX_Y{ 7 };
+int MAX_Z{ 8 };
+uint32_t MAX_HANDLE{ static_cast<uint32_t>(MAX_X * MAX_Y * MAX_Z) };
+Vector3 CUBE_SIZE{ 2, 2, 2 };
+float CUBE_SPACING{ 5.0f };
+
+struct Coord {
+   int x;
+   int y;
+   int z;
+};
+struct Dim {
+   int x;
+   int y;
+   int z;
+};
+struct Handle {
+   uint32_t id;
+};
+
+Dim MAX_DIM{ MAX_X, MAX_Y, MAX_Z };
+
+// grid-coordinates to handle
+static Handle get_handle(Coord coords, Dim widths) {
+   if (coords.x < 0 || coords.x >= widths.x) return Handle{ 0 };
+   if (coords.y < 0 || coords.y >= widths.y) return Handle{ 0 };
+   if (coords.z < 0 || coords.z >= widths.z) return Handle{ 0 };
+
+   return Handle{ static_cast<uint32_t>(coords.x + (coords.y * widths.x) + (coords.z * widths.x * widths.y)) + 1 };
+}
+
+// handle to grid-coordinates
+static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
+   if (handle.id == 0) return false;
+   if (handle.id > MAX_HANDLE) return false;
+
+   int index{ static_cast<int>(handle.id) - 1 };
+   out.z = (index / (widths.x * widths.y));
+
+   int remainder{ index % (widths.x * widths.y) };
+   out.y = remainder / widths.x;
+   out.x = remainder % static_cast<int>(widths.x);
+   
+   return true;
+}
 
 int main() { 
    sdk::Runtime_Config config = {};
@@ -58,12 +106,6 @@ int main() {
    float text_y = 0.0f;
    int font_size = 16;
 
-   int MAX_X{ 5 };
-   int MAX_Y{ 7 };
-   int MAX_Z{ 8 };
-   Vector3 CUBE_SIZE{ 2, 2, 2 };
-   float CUBE_SPACING{ 5.0f };
-
    while (!WindowShouldClose()) {
       auto frame_time = std::chrono::steady_clock::now();
       auto diff = frame_time - startup_time;
@@ -91,6 +133,11 @@ int main() {
       if ((int)text_x >= config.screen_width) text_x = 0.0f;
       if ((int)text_y >= config.screen_height) text_y = 0.0f;
 
+      Coord selected{0,0,0};
+      Handle handle{ get_handle(selected, MAX_DIM) };
+      Coord c = {};
+      bool is_selected_valid{ get_coordinates(handle, MAX_DIM, c) };
+
       BeginDrawing();
          ClearBackground(BLACK);
 
@@ -113,7 +160,12 @@ int main() {
                      p.y = CUBE_SPACING * (static_cast<float>(y - (MAX_Y / 2)) + (static_cast<float>((MAX_Y & 1) == 0) * 0.5f));
                      p.z = CUBE_SPACING * (static_cast<float>(z - (MAX_Z / 2)) + (static_cast<float>((MAX_Z & 1) == 0) * 0.5f));
 
-                     DrawCubeV(p, CUBE_SIZE, YELLOW);
+                     if (is_selected_valid && handle.id == get_handle(Coord{x,y,z}, MAX_DIM).id) {
+                        DrawCubeV(p, CUBE_SIZE, GREEN);
+                     } else {
+                        DrawCubeV(p, CUBE_SIZE, YELLOW);
+                     }
+
                      DrawCubeWiresV(p, CUBE_SIZE, MAGENTA);
                   }
                }
@@ -132,6 +184,11 @@ int main() {
          DrawText("Ya Boi", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
          DrawText("ESC: Exit", x_offset, y_offset, font_size, RAYWHITE);
+         y_offset += font_size;
+
+         if (is_selected_valid) {
+            DrawText(TextFormat("CUBE: handle = %d | x = %i  y = %i  z = %i", handle.id, c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
+         }
 
          y_offset += font_size;
          std::snprintf(camera_overlay_buffer, sizeof(camera_overlay_buffer), "CAMERA: target (%.2f,%.2f,%.2f) yaw (%.2f) pitch (%.2f) distance (%.2f) capture (%d)", camera.target.x, camera.target.y, camera.target.z, camera_state.yaw, camera_state.pitch, camera_state.distance, camera_state.wants_cursor_captured);

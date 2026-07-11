@@ -54,10 +54,12 @@ the learner's rebuild.
   orbit policy, cursor transitions, delta suppression, clamping, and Raylib
   `Camera3D` derivation while the app samples raw Raylib input. The integrated
   app builds and preserves the interactive cube scene.
-- Checkpoint 11 has been redefined as a direct tiny-field feature under the
-  build-first coaching model. Application-module extraction is deferred to
-  Checkpoint 17, after field data creates real refactoring pressure. Resume
-  from `CURRENT_STEP.md`.
+- Checkpoints 11 and 12 are complete and reviewed: `src/main.cpp` now renders
+  an arbitrary even/odd cube field centered around world origin by deriving
+  each cube center inside explicit nested loops. No cube position array or new
+  app module exists yet.
+- Resume at Checkpoint 13 from `CURRENT_STEP.md`: introduce one-based cube
+  handles and show a highlighted cube's handle/coordinate round trip.
 
 ## Coaching contract
 
