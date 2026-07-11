@@ -13,7 +13,6 @@
 int MAX_X{ 5 };
 int MAX_Y{ 7 };
 int MAX_Z{ 8 };
-uint32_t MAX_HANDLE{ static_cast<uint32_t>(MAX_X * MAX_Y * MAX_Z) };
 Vector3 CUBE_SIZE{ 2, 2, 2 };
 float CUBE_SPACING{ 5.0f };
 
@@ -33,6 +32,10 @@ struct Handle {
 
 Dim MAX_DIM{ MAX_X, MAX_Y, MAX_Z };
 
+static Handle max_handle(Dim dim) {
+   return Handle{ static_cast<uint32_t>(dim.x * dim.y * dim.z) };
+}
+
 // grid-coordinates to handle
 static Handle get_handle(Coord coords, Dim widths) {
    if (coords.x < 0 || coords.x >= widths.x) return Handle{ 0 };
@@ -45,7 +48,7 @@ static Handle get_handle(Coord coords, Dim widths) {
 // handle to grid-coordinates
 static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
    if (handle.id == 0) return false;
-   if (handle.id > MAX_HANDLE) return false;
+   if (handle.id > max_handle(widths)) return false;
 
    int index{ static_cast<int>(handle.id) - 1 };
    out.z = (index / (widths.x * widths.y));
@@ -133,7 +136,7 @@ int main() {
       if ((int)text_x >= config.screen_width) text_x = 0.0f;
       if ((int)text_y >= config.screen_height) text_y = 0.0f;
 
-      Coord selected{0,0,0};
+      Coord selected{1,3,4};
       Handle handle{ get_handle(selected, MAX_DIM) };
       Coord c = {};
       bool is_selected_valid{ get_coordinates(handle, MAX_DIM, c) };
@@ -187,7 +190,9 @@ int main() {
          y_offset += font_size;
 
          if (is_selected_valid) {
-            DrawText(TextFormat("CUBE: handle = %d | x = %i  y = %i  z = %i", handle.id, c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
+            DrawText(TextFormat("CUBE: handle = %u | x = %i  y = %i  z = %i", handle.id, c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
+         } else { 
+            DrawText("CUBE: handle = FAIL");
          }
 
          y_offset += font_size;
