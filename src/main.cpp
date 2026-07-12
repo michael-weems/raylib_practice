@@ -40,7 +40,22 @@ enum Value : std::uint8_t {
    VALUE_COUNT
 };
 
+struct Cube_Styling {
+   Color fill_color;
+   Color wire_color;
+};
+struct Palette {
+   Cube_Styling styles[VALUE_COUNT];
+};
+struct Palette_Handle {
+   uint32_t id;
+};
+
 Dim MAX_DIM{ MAX_X, MAX_Y, MAX_Z };
+
+const int PALETTE_1{ 1 };
+const int PALETTE_2{ 2 };
+const int PALETTE_3{ 3 };
 
 static Handle max_handle(Dim dim) {
    return Handle{ static_cast<uint32_t>(dim.x * dim.y * dim.z) };
@@ -70,16 +85,6 @@ static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
    return true;
 }
 
-static Color get_cube_color(Value v) {
-   switch (v) {
-   case VALUE_A: return YELLOW;
-   case VALUE_B: return MAGENTA;
-   case VALUE_C: return BLUE;
-   case VALUE_D: return GREEN;
-   default:      return RED;
-   }
-}
-
 static const char * get_value_string(Value v) {
    switch (v) {
    case VALUE_A: return "A\0";
@@ -90,13 +95,23 @@ static const char * get_value_string(Value v) {
    }
 }
 
-uint32_t hash32(uint32_t a) {
+static uint32_t hash32(uint32_t a) {
     a = (a ^ 61) ^ (a >> 16);
     a = a + (a << 3);
     a = a ^ (a >> 4);
     a = a * 0x27d4eb2d;
     a = a ^ (a >> 15);
     return a;
+}
+
+static std::uint32_t hash_coord(Coord coordinate) {
+   std::uint32_t mixed_coordinate = 0x9E3779B9u;
+
+   mixed_coordinate ^= static_cast<std::uint32_t>(coordinate.x) * 0x85EBCA6Bu;
+   mixed_coordinate ^= static_cast<std::uint32_t>(coordinate.y) * 0xC2B2AE35u;
+   mixed_coordinate ^= static_cast<std::uint32_t>(coordinate.z) * 0x27D4EB2Fu;
+
+   return hash32(mixed_coordinate);
 }
 
 int main() { 
@@ -109,9 +124,31 @@ int main() {
    }
 
    values[0] = VALUE_NONE;
-   for (uint32_t i{ 1 }; i <= largest_handle.id; ++i) { 
-      values[i] = static_cast<Value>((hash32(i) % (VALUE_COUNT - 1)) + 1);
+   for (int z{ 0 }; z < MAX_Z; ++z) {
+      for (int y{ 0 }; y < MAX_Y; ++y) {
+         for (int x{ 0 }; x < MAX_X; ++x) {
+            Coord coord{ x, y, z };
+            Handle handle{ get_handle(coord, MAX_DIM) };
+            values[handle.id] = static_cast<Value>((hash_coord(coord) & 3u) + 1u);
+         }
+      }
    }
+
+   Palette palettes[4] = { };
+   palettes[1].styles[VALUE_A] = {BLUE, RAYWHITE};
+   palettes[1].styles[VALUE_B] = {RED, RAYWHITE};
+   palettes[1].styles[VALUE_C] = {GREEN, RAYWHITE};
+   palettes[1].styles[VALUE_D] = {Color{255, 255, 255, 153}, RAYWHITE};
+
+   palettes[2].styles[VALUE_A] = {YELLOW, RAYWHITE};
+   palettes[2].styles[VALUE_B] = {ORANGE, RAYWHITE};
+   palettes[2].styles[VALUE_C] = {MAROON, RAYWHITE};
+   palettes[2].styles[VALUE_D] = {Color{255, 255, 255, 153}, RAYWHITE};
+
+   palettes[3].styles[VALUE_A] = {BEIGE, GREEN};
+   palettes[3].styles[VALUE_B] = {BROWN, GREEN};
+   palettes[3].styles[VALUE_C] = {DARKBROWN, GOLD};
+   palettes[3].styles[VALUE_D] = {Color{255, 255, 255, 153}, GOLD};
 
    sdk::Runtime_Config config = {};
    sdk::Runtime_State runtime = {};
@@ -165,6 +202,8 @@ int main() {
    float text_y = 0.0f;
    int font_size = 16;
 
+   Palette_Handle palette{ 1 };
+
    while (!WindowShouldClose()) {
       auto frame_time = std::chrono::steady_clock::now();
       auto diff = frame_time - startup_time;
@@ -185,6 +224,10 @@ int main() {
          std::cerr << "ERR: CAMERA UPDATE" << std::endl;
          break;
       }
+
+      if (IsKeyPressed(KEY_ONE))   palette.id = PALETTE_1;
+      if (IsKeyPressed(KEY_TWO))   palette.id = PALETTE_2;
+      if (IsKeyPressed(KEY_THREE)) palette.id = PALETTE_3;
 
       text_x += dt * 20.0f;
       text_y += dt * 20.0f;
@@ -207,6 +250,8 @@ int main() {
             DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 10, 0}, RED);
             DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 0, 10}, GREEN);
 
+            const Palette& styles{ palettes[palette.id] };
+
             for (int z{ 0 }; z < MAX_Z; ++z) {
                for (int y{ 0 }; y < MAX_Y; ++y) {
                   for (int x{ 0 }; x < MAX_X; ++x) {
@@ -217,18 +262,17 @@ int main() {
 
                      Handle cube_handle{ get_handle(Coord{x,y,z}, MAX_DIM) };
                      Value cube_value{ values[cube_handle.id] };
-                     Color cube_color{ get_cube_color(cube_value) };
 
                      Vector3 p = {};
                      p.x = CUBE_SPACING * (static_cast<float>(x - (MAX_X / 2)) + (static_cast<float>((MAX_X & 1) == 0) * 0.5f));
                      p.y = CUBE_SPACING * (static_cast<float>(y - (MAX_Y / 2)) + (static_cast<float>((MAX_Y & 1) == 0) * 0.5f));
                      p.z = CUBE_SPACING * (static_cast<float>(z - (MAX_Z / 2)) + (static_cast<float>((MAX_Z & 1) == 0) * 0.5f));
 
-                     DrawCubeV(p, CUBE_SIZE, cube_color);
+                     DrawCubeV(p, CUBE_SIZE, styles.styles[cube_value].fill_color);
                      if (is_selected_valid && selected_handle.id == cube_handle.id) {
                         DrawCubeWiresV(p, CUBE_SIZE, LIME);
                      } else {
-                        DrawCubeWiresV(p, CUBE_SIZE, RAYWHITE);
+                        DrawCubeWiresV(p, CUBE_SIZE, styles.styles[cube_value].wire_color);
                      }
 
                   }
@@ -248,6 +292,8 @@ int main() {
          DrawText("Ya Boi", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
          DrawText("ESC: Exit", x_offset, y_offset, font_size, RAYWHITE);
+         y_offset += font_size;
+         DrawText(TextFormat("Palette: %i", palette.id), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          if (is_selected_valid) {

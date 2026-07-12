@@ -1335,9 +1335,9 @@ links here instead of duplicating checkpoint history.
 | 12 | Implicit centering | complete | | Build/review passed; arbitrary even/odd dimensions stay centered around world origin. |
 | 13 | Cube handles | complete | | Build/review passed; one-based X-contiguous handles round-trip through grid coordinates with zero reserved. |
 | 14 | Cube values | complete | | Build/review passed; one-byte immutable A/B/C/D values use one-based handles with a zero stub. |
-| 15 | Deterministic generation | working | | |
-| 16 | Palettes and edges | not started | | |
-| 17 | Proven-boundary refactor | not started | | |
+| 15 | Deterministic generation | complete | | Build/review passed; startup coordinate hashing produces immutable reproducible A/B/C/D values without storage-order striping. |
+| 16 | Palettes and edges | complete | | Build/review passed; three one-based palettes map immutable values to adjacent fill/edge styles and switch immediately with keys 1/2/3. |
+| 17 | Proven-boundary refactor | working | | Substep A active: extract the proven pure cube-field rules while preserving behavior. |
 | 18 | Selected cube | not started | | |
 | 19 | Focused region | not started | | |
 | 20 | Radius culling | not started | | |
