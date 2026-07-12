@@ -3,6 +3,22 @@ $ErrorActionPreference = 'Stop'
 
 $script:VcVars64Imported = $false
 
+function Get-RequestedCompiler {
+    param(
+        [string] $Compiler = $env:SW_RENDER_COMPILER
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Compiler)) {
+        return 'ClangCl'
+    }
+
+    if ($Compiler -notin @('ClangCl', 'MSVC')) {
+        throw "Unknown compiler '$Compiler'. Expected ClangCl or MSVC."
+    }
+
+    return $Compiler
+}
+
 function Get-RepoRoot {
     return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 }
@@ -65,6 +81,72 @@ function Find-VcVars64 {
     throw "Could not find vcvars64.bat. Install Visual Studio C++ build tools or set VCVARS64 to the full path."
 }
 
+function Find-ClangCl {
+    param(
+        [string] $RequestedPath = $env:CLANG_CL
+    )
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $candidates += $RequestedPath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $candidates += (Join-Path $env:ProgramFiles 'LLVM\bin\clang-cl.exe')
+    }
+
+    $command = Get-Command clang-cl.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        $candidates += $command.Source
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $candidates += (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-cl.exe')
+        $candidates += (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-cl.exe')
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    throw 'Could not find clang-cl.exe. Install LLVM, add it to PATH, or set CLANG_CL to its full path.'
+}
+
+function Find-ClangFormat {
+    param(
+        [string] $RequestedPath = $env:CLANG_FORMAT
+    )
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
+        $candidates += $RequestedPath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $candidates += (Join-Path $env:ProgramFiles 'LLVM\bin\clang-format.exe')
+    }
+
+    $command = Get-Command clang-format.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        $candidates += $command.Source
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $candidates += (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-format.exe')
+        $candidates += (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang-format.exe')
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+
+    throw 'Could not find clang-format.exe. Install LLVM, add it to PATH, or set CLANG_FORMAT to its full path.'
+}
+
 function Import-VcVars64Environment {
     if ($script:VcVars64Imported) {
         return
@@ -79,6 +161,10 @@ function Import-VcVars64Environment {
         throw "vcvars64.bat failed with exit code $LASTEXITCODE"
     }
 
+    $visualStudioPath = $lines | Where-Object {
+        $_.StartsWith('PATH=', [System.StringComparison]::OrdinalIgnoreCase)
+    } | Select-Object -First 1
+
     foreach ($line in $lines) {
         $separator = $line.IndexOf('=')
         if ($separator -le 0) {
@@ -86,11 +172,110 @@ function Import-VcVars64Environment {
         }
 
         $name = $line.Substring(0, $separator)
+        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_.()]*$') {
+            continue
+        }
+        if ($name.Equals('Path', [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
         $value = $line.Substring($separator + 1)
-        Set-Item -Path "Env:$name" -Value $value
+        Set-Item -LiteralPath "Env:$name" -Value $value
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($visualStudioPath)) {
+        $separator = $visualStudioPath.IndexOf('=')
+        $env:Path = $visualStudioPath.Substring($separator + 1)
     }
 
     $script:VcVars64Imported = $true
+}
+
+function Get-CompilerPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('ClangCl', 'MSVC')]
+        [string] $Compiler
+    )
+
+    if ($Compiler -eq 'ClangCl') {
+        return Find-ClangCl
+    }
+
+    $command = Get-Command cl.exe -ErrorAction SilentlyContinue
+    if (-not $command) {
+        throw 'cl.exe was not found after importing the Visual Studio build environment.'
+    }
+
+    return $command.Source
+}
+
+function Get-CachedCompilerPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $BuildPath
+    )
+
+    $cachePath = Join-Path $BuildPath 'CMakeCache.txt'
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+        return ''
+    }
+
+    $match = Select-String -LiteralPath $cachePath -Pattern '^CMAKE_C_COMPILER:[^=]+=(.+)$' | Select-Object -First 1
+    if (-not $match) {
+        return ''
+    }
+
+    return $match.Matches[0].Groups[1].Value
+}
+
+function Get-CachedGenerator {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $BuildPath
+    )
+
+    $cachePath = Join-Path $BuildPath 'CMakeCache.txt'
+    if (-not (Test-Path -LiteralPath $cachePath)) {
+        return ''
+    }
+
+    $match = Select-String -LiteralPath $cachePath -Pattern '^CMAKE_GENERATOR:INTERNAL=(.+)$' | Select-Object -First 1
+    if (-not $match) {
+        return ''
+    }
+
+    return $match.Matches[0].Groups[1].Value
+}
+
+function Test-CMakeCacheNeedsRefresh {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $BuildPath,
+
+        [Parameter(Mandatory = $true)]
+        [string] $CompilerPath,
+
+        [Parameter(Mandatory = $true)]
+        [string] $Generator
+    )
+
+    $cachedGenerator = Get-CachedGenerator -BuildPath $BuildPath
+    if (-not [string]::IsNullOrWhiteSpace($cachedGenerator) -and $cachedGenerator -ne $Generator) {
+        return $true
+    }
+
+    $cachedCompiler = Get-CachedCompilerPath -BuildPath $BuildPath
+    if ([string]::IsNullOrWhiteSpace($cachedCompiler)) {
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $cachedCompiler)) {
+        return $true
+    }
+
+    $cachedFullPath = [System.IO.Path]::GetFullPath($cachedCompiler)
+    $requestedFullPath = [System.IO.Path]::GetFullPath($CompilerPath)
+    return -not $cachedFullPath.Equals($requestedFullPath, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 function Format-NativeCommand {
@@ -139,6 +324,9 @@ function Invoke-CMakeBuild {
 
         [string] $Generator = $(if ($env:CMAKE_GENERATOR) { $env:CMAKE_GENERATOR } else { 'Ninja' }),
 
+        [ValidateSet('ClangCl', 'MSVC')]
+        [string] $Compiler = (Get-RequestedCompiler),
+
         [string] $Target = '',
 
         [switch] $CleanFirst
@@ -149,12 +337,24 @@ function Invoke-CMakeBuild {
 
     Import-VcVars64Environment
 
-    Invoke-NativeCommand -FilePath 'cmake' -Arguments @(
+    $compilerPath = Get-CompilerPath -Compiler $Compiler
+    Write-Host "Using C/C++ compiler: $compilerPath"
+
+    $configureArgs = @()
+    if (Test-CMakeCacheNeedsRefresh -BuildPath $buildPath -CompilerPath $compilerPath -Generator $Generator) {
+        Write-Host 'Compiler changed or cached compiler disappeared; refreshing the CMake cache.'
+        $configureArgs += '--fresh'
+    }
+
+    $configureArgs += @(
         '-S', $sourcePath,
         '-B', $buildPath,
         '-G', $Generator,
-        "-DCMAKE_BUILD_TYPE=$BuildType"
-    ) | Out-Host
+        "-DCMAKE_BUILD_TYPE=$BuildType",
+        "-DCMAKE_C_COMPILER:FILEPATH=$compilerPath",
+        "-DCMAKE_CXX_COMPILER:FILEPATH=$compilerPath"
+    )
+    Invoke-NativeCommand -FilePath 'cmake' -Arguments $configureArgs | Out-Host
 
     $buildArgs = @('--build', $buildPath, '--config', $BuildType)
     if (-not [string]::IsNullOrWhiteSpace($Target)) {

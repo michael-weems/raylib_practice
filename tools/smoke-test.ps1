@@ -8,6 +8,9 @@ param(
 
     [string] $Generator = $(if ($env:CMAKE_GENERATOR) { $env:CMAKE_GENERATOR } else { 'Ninja' }),
 
+    [ValidateSet('ClangCl', 'MSVC')]
+    [string] $Compiler = $(if ($env:SW_RENDER_COMPILER) { $env:SW_RENDER_COMPILER } else { 'ClangCl' }),
+
     [int] $TimeoutSeconds = 10,
 
     [switch] $NoBuild,
@@ -37,6 +40,7 @@ if (-not $NoBuild) {
         -BuildDir $buildDir `
         -BuildType $BuildType `
         -Generator $Generator `
+        -Compiler $Compiler `
         -Target $targetName | Out-Null
 }
 

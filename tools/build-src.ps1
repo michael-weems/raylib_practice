@@ -5,6 +5,9 @@ param(
 
     [string] $Generator = $(if ($env:CMAKE_GENERATOR) { $env:CMAKE_GENERATOR } else { 'Ninja' }),
 
+    [ValidateSet('ClangCl', 'MSVC')]
+    [string] $Compiler = $(if ($env:SW_RENDER_COMPILER) { $env:SW_RENDER_COMPILER } else { 'ClangCl' }),
+
     [string] $BuildDir = 'out\build',
 
     [switch] $Run,
@@ -22,6 +25,7 @@ $buildPath = Invoke-CMakeBuild `
     -BuildDir $BuildDir `
     -BuildType $BuildType `
     -Generator $Generator `
+    -Compiler $Compiler `
     -Target 'software_renderer' `
     -CleanFirst:$CleanFirst
 
@@ -33,9 +37,15 @@ if (-not (Test-Path -LiteralPath $exePath)) {
 Write-Host "Built src application: $exePath"
 
 if ($Run -or $Debugger) {
-    if ($Debugger) {
-        Invoke-NativeCommand -FilePath 'raddbg' -Arguments @($exePath)
-    } else {
-        Invoke-NativeCommand -FilePath $exePath
+    $workingDirectory = Split-Path -Parent $exePath
+    Push-Location -LiteralPath $workingDirectory
+    try {
+        if ($Debugger) {
+            Invoke-NativeCommand -FilePath 'raddbg' -Arguments @($exePath)
+        } else {
+            Invoke-NativeCommand -FilePath $exePath
+        }
+    } finally {
+        Pop-Location
     }
 }

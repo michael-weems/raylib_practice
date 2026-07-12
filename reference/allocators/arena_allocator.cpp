@@ -1,113 +1,88 @@
 #include "allocators/arena_allocator.h"
 
-#include <stdint.h>
-#include <stdlib.h>
+#include <string.h>
 
 namespace alloc {
 
-static uintptr_t align_forward(uintptr_t value, size_t align)
-{
-    uintptr_t mask = 0;
-    if (align) {
-        mask = (uintptr_t)(align - 1u);
-    }
-    return (value + mask) & ~mask;
+static int alignment_is_valid(size_t alignment) {
+    return alignment != 0u && (alignment & (alignment - 1u)) == 0u;
 }
 
-static void* malloc_alloc(void*, size_t size, size_t align)
-{
-    size_t header = sizeof(void*) + align;
-    void* raw = malloc(size + header);
-    if (!raw) {
+int arena_allocator_initialize(Arena_Allocator& arena, void* memory, size_t capacity) {
+    memset(&arena, 0, sizeof(arena));
+    if (memory == 0 || capacity == 0u) {
         return 0;
     }
 
-    size_t effective_align = align;
-    if (!effective_align) {
-        effective_align = sizeof(void*);
-    }
-
-    uintptr_t start = (uintptr_t)raw + sizeof(void*);
-    uintptr_t aligned = align_forward(start, effective_align);
-    ((void**)aligned)[-1] = raw;
-    return (void*)aligned;
-}
-
-static void malloc_free(void*, void* ptr)
-{
-    if (ptr) {
-        free(((void**)ptr)[-1]);
-    }
-}
-
-static void* arena_alloc_cb(void* user, size_t size, size_t align)
-{
-    return arena_push(*(Arena*)user, size, align);
-}
-
-static void arena_free_cb(void*, void*) {}
-
-Allocator malloc_allocator(void)
-{
-    Allocator a = {};
-    a.alloc = malloc_alloc;
-    a.free = malloc_free;
-    return a;
-}
-
-void* allocator_alloc(Allocator& allocator, size_t size, size_t align)
-{
-    if (!allocator.alloc) {
-        return 0;
-    }
-
-    return allocator.alloc(allocator.user, size, align);
-}
-
-void allocator_free(Allocator& allocator, void* ptr)
-{
-    if (allocator.free) {
-        allocator.free(allocator.user, ptr);
-    }
-}
-
-void arena_init(Arena& arena, void* memory, size_t capacity)
-{
-    arena.memory = (unsigned char*)memory;
+    arena.memory = (uint8_t*)memory;
     arena.capacity = capacity;
-    arena.used = 0;
+    return 1;
 }
 
-void arena_reset(Arena& arena)
-{
-    arena.used = 0;
+void arena_allocator_reset(Arena_Allocator& arena) {
+    arena.used = 0u;
 }
 
-void* arena_push(Arena& arena, size_t size, size_t align)
-{
-    size_t effective_align = align;
-    if (!effective_align) {
-        effective_align = sizeof(void*);
-    }
-
-    uintptr_t base = (uintptr_t)arena.memory;
-    uintptr_t at = align_forward(base + arena.used, effective_align);
-    size_t next = (size_t)(at - base) + size;
-    if (!arena.memory || next > arena.capacity) {
+void* arena_allocator_allocate(Arena_Allocator& arena, size_t size, size_t alignment) {
+    if (arena.memory == 0 || arena.used > arena.capacity || size == 0u ||
+        !alignment_is_valid(alignment)) {
         return 0;
     }
 
-    arena.used = next;
-    return (void*)at;
+    uintptr_t memory_address = (uintptr_t)arena.memory;
+    if (memory_address > UINTPTR_MAX - arena.used) {
+        return 0;
+    }
+
+    uintptr_t current_address = memory_address + arena.used;
+    uintptr_t alignment_mask = (uintptr_t)alignment - 1u;
+    if (current_address > UINTPTR_MAX - alignment_mask) {
+        return 0;
+    }
+
+    uintptr_t aligned_address = (current_address + alignment_mask) & ~alignment_mask;
+    if (aligned_address < current_address) {
+        return 0;
+    }
+
+    size_t padding = (size_t)(aligned_address - current_address);
+    size_t remaining = arena.capacity - arena.used;
+    if (padding > remaining || size > remaining - padding) {
+        return 0;
+    }
+
+    arena.used += padding + size;
+    if (arena.used > arena.high_water_mark) {
+        arena.high_water_mark = arena.used;
+    }
+
+    return (void*)aligned_address;
 }
 
-Allocator arena_allocator(Arena& arena)
-{
-    Allocator a = {};
-    a.user = &arena;
-    a.alloc = arena_alloc_cb;
-    a.free = arena_free_cb;
-    return a;
+size_t arena_allocator_remaining(const Arena_Allocator& arena) {
+    if (arena.used > arena.capacity) {
+        return 0u;
+    }
+
+    return arena.capacity - arena.used;
 }
 
+static void* arena_allocate_callback(void* context, size_t size, size_t alignment) {
+    if (context == 0) {
+        return 0;
+    }
+
+    return arena_allocator_allocate(*(Arena_Allocator*)context, size, alignment);
 }
+
+static void arena_release_callback(void*, void*, size_t, size_t) {}
+
+Allocator arena_allocator_create_interface(Arena_Allocator& arena) {
+    Allocator allocator = {};
+    allocator.context = &arena;
+    allocator.allocate = arena_allocate_callback;
+    allocator.release = arena_release_callback;
+    return allocator;
+}
+
+} // namespace alloc

@@ -1,211 +1,291 @@
 #include "app/cube_field.h"
 
+#include "allocators/aligned_allocator.h"
+
+#include <limits.h>
 #include <math.h>
+#include <string.h>
 
 namespace app {
 
-static uint32_t hash_u32(uint32_t x)
-{
-    x ^= x >> 16;
-    x *= 0x7feb352du;
-    x ^= x >> 15;
-    x *= 0x846ca68bu;
-    x ^= x >> 16;
-    return x;
+static_assert(sizeof(Cube_Visual_Style) == 8u,
+              "Cube_Visual_Style must remain one adjacent fill and edge pair");
+static_assert(sizeof(Cube_Value) == 1u, "Cube_Value must remain one byte per cube");
+
+static const char* CUBE_VALUE_LABELS[CUBE_VALUE_COUNT] = {"", "A", "B", "C", "D"};
+
+static uint32_t cube_value_hash(uint32_t x, uint32_t y, uint32_t z) {
+    uint32_t hash = x * 73856093u ^ y * 19349663u ^ z * 83492791u;
+    hash ^= hash >> 16u;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15u;
+    hash *= 0x846ca68bu;
+    hash ^= hash >> 16u;
+    return hash;
 }
 
-static uint32_t clamp_u32(int v, uint32_t hi)
-{
-    if (v < 0) {
+int cube_field_initialize(Cube_Field& field, const Cube_Field_Config& config) {
+    memset(&field, 0, sizeof(field));
+    if (config.dimensions.x == 0u || config.dimensions.y == 0u || config.dimensions.z == 0u ||
+        config.cube_size <= 0.0f || config.spacing <= 0.0f) {
         return 0;
     }
 
-    uint32_t result = (uint32_t)v;
-    if (result > hi) {
-        return hi;
+    uint64_t stride_z = (uint64_t)config.dimensions.x * config.dimensions.y;
+    uint64_t cube_count = stride_z * config.dimensions.z;
+    if (stride_z > UINT32_MAX || cube_count == 0u || cube_count >= UINT32_MAX) {
+        return 0;
     }
 
-    return result;
+    field.dimensions = config.dimensions;
+    field.stride_y = config.dimensions.x;
+    field.stride_z = (uint32_t)stride_z;
+    field.cube_count = (uint32_t)cube_count;
+    field.cube_size = config.cube_size;
+    field.spacing = config.spacing;
+    field.first_center.x = -0.5f * (float)(field.dimensions.x - 1u) * field.spacing;
+    field.first_center.y = -0.5f * (float)(field.dimensions.y - 1u) * field.spacing;
+    field.first_center.z = -0.5f * (float)(field.dimensions.z - 1u) * field.spacing;
+
+    float half_cube_size = 0.5f * field.cube_size;
+    field.bounds_min.x = field.first_center.x - half_cube_size;
+    field.bounds_min.y = field.first_center.y - half_cube_size;
+    field.bounds_min.z = field.first_center.z - half_cube_size;
+    field.bounds_max.x =
+        field.first_center.x + (float)(field.dimensions.x - 1u) * field.spacing + half_cube_size;
+    field.bounds_max.y =
+        field.first_center.y + (float)(field.dimensions.y - 1u) * field.spacing + half_cube_size;
+    field.bounds_max.z =
+        field.first_center.z + (float)(field.dimensions.z - 1u) * field.spacing + half_cube_size;
+    return 1;
 }
 
-void cube_field_init(Cube_Field& f, uint32_t x, uint32_t y, uint32_t z, float cube_size, float spacing)
-{
-    f.count_x = x;
-    f.count_y = y;
-    f.count_z = z;
-    f.stride_y = x;
-    f.stride_z = x*y;
-    f.total_count = x*y*z;
-    f.cube_size = cube_size;
-    f.spacing = spacing;
-
-    f.first_center.x = -((float)x - 1.0f)*spacing*0.5f;
-    f.first_center.y = -((float)y - 1.0f)*spacing*0.5f;
-    f.first_center.z = -((float)z - 1.0f)*spacing*0.5f;
-
-    uint32_t last_x = 0;
-    uint32_t last_y = 0;
-    uint32_t last_z = 0;
-    if (x) {
-        last_x = x - 1u;
-    }
-    if (y) {
-        last_y = y - 1u;
-    }
-    if (z) {
-        last_z = z - 1u;
-    }
-
-    Vector3 last = cube_center(f, last_x, last_y, last_z);
-    float h = cube_size*0.5f;
-    f.bounds_min = Vector3{f.first_center.x - h, f.first_center.y - h, f.first_center.z - h};
-    f.bounds_max = Vector3{last.x + h, last.y + h, last.z + h};
+int cube_field_contains(const Cube_Field& field, Grid_Coordinate coordinate) {
+    return coordinate.x < field.dimensions.x && coordinate.y < field.dimensions.y &&
+           coordinate.z < field.dimensions.z;
 }
 
-Cube_Handle cube_handle_from_coords(const Cube_Field& f, uint32_t x, uint32_t y, uint32_t z)
-{
-    if (x >= f.count_x || y >= f.count_y || z >= f.count_z) {
-        return CUBE_HANDLE_STUB;
-    }
-    return (Cube_Handle)(z*f.stride_z + y*f.stride_y + x + CUBE_HANDLE_FIRST);
-}
-
-Cube_Coords cube_coords_from_handle(const Cube_Field& f, Cube_Handle h)
-{
-    Cube_Coords c = {};
-    if (h == CUBE_HANDLE_STUB || h > f.total_count) {
-        return c;
+Cube_Handle cube_field_handle(const Cube_Field& field, Grid_Coordinate coordinate) {
+    if (!cube_field_contains(field, coordinate)) {
+        return CUBE_HANDLE_NONE;
     }
 
-    uint32_t i = h - CUBE_HANDLE_FIRST;
-    c.x = i%f.stride_y;
-    c.y = (i/f.stride_y)%f.count_y;
-    c.z = i/f.stride_z;
-    return c;
+    return coordinate.x + coordinate.y * field.stride_y + coordinate.z * field.stride_z +
+           CUBE_HANDLE_FIRST;
 }
 
-Cube_Handle cube_handle_from_world(const Cube_Field& f, Vector3 p)
-{
-    if (!f.count_x || !f.count_y || !f.count_z || f.spacing == 0.0f) {
-        return CUBE_HANDLE_STUB;
+int cube_field_contains_handle(const Cube_Field& field, Cube_Handle cube) {
+    return cube != CUBE_HANDLE_NONE && cube <= field.cube_count;
+}
+
+Grid_Coordinate cube_field_coordinate(const Cube_Field& field, Cube_Handle cube) {
+    Grid_Coordinate coordinate = {};
+    if (!cube_field_contains_handle(field, cube) || field.stride_y == 0u || field.stride_z == 0u) {
+        return coordinate;
     }
 
-    int x = (int)floorf((p.x - f.first_center.x)/f.spacing + 0.5f);
-    int y = (int)floorf((p.y - f.first_center.y)/f.spacing + 0.5f);
-    int z = (int)floorf((p.z - f.first_center.z)/f.spacing + 0.5f);
-    return cube_handle_from_coords(f, clamp_u32(x, f.count_x - 1u), clamp_u32(y, f.count_y - 1u), clamp_u32(z, f.count_z - 1u));
+    uint32_t index = cube - CUBE_HANDLE_FIRST;
+    coordinate.z = index / field.stride_z;
+    uint32_t plane_index = index % field.stride_z;
+    coordinate.y = plane_index / field.stride_y;
+    coordinate.x = plane_index % field.stride_y;
+    return coordinate;
 }
 
-Vector3 cube_center(const Cube_Field& f, uint32_t x, uint32_t y, uint32_t z)
-{
-    return Vector3{f.first_center.x + (float)x*f.spacing, f.first_center.y + (float)y*f.spacing, f.first_center.z + (float)z*f.spacing};
-}
-
-void cube_bounds(const Cube_Field& f, Cube_Handle h, Vector3& mn, Vector3& mx)
-{
-    Cube_Coords c = cube_coords_from_handle(f, h);
-    Vector3 center = cube_center(f, c.x, c.y, c.z);
-    float r = f.cube_size*0.5f;
-    mn = Vector3{center.x-r, center.y-r, center.z-r};
-    mx = Vector3{center.x+r, center.y+r, center.z+r};
-}
-
-int cube_data_generate(Cube_Data& d, const Cube_Field& f, alloc::Allocator& allocator)
-{
-    d.count = f.total_count + CUBE_HANDLE_FIRST;
-    d.values = (uint8_t*)alloc::allocator_alloc(allocator, sizeof(uint8_t)*d.count, 64);
-    if (!d.values) {
-        return 1;
+Vector3 cube_field_coordinate_center(const Cube_Field& field, Grid_Coordinate coordinate) {
+    Vector3 center = {};
+    if (!cube_field_contains(field, coordinate)) {
+        return center;
     }
 
-    d.values[CUBE_HANDLE_STUB] = CUBE_VALUE_NONE;
+    center.x = field.first_center.x + (float)coordinate.x * field.spacing;
+    center.y = field.first_center.y + (float)coordinate.y * field.spacing;
+    center.z = field.first_center.z + (float)coordinate.z * field.spacing;
+    return center;
+}
 
-    for (uint32_t z = 0; z < f.count_z; ++z) {
-        for (uint32_t y = 0; y < f.count_y; ++y) {
-            for (uint32_t x = 0; x < f.count_x; ++x) {
-                uint32_t h = hash_u32(x*73856093u ^ y*19349663u ^ z*83492791u ^ (x*y + z*17u));
-                d.values[cube_handle_from_coords(f, x, y, z)] = (uint8_t)(CUBE_VALUE_A + h%4u);
+Vector3 cube_field_cube_center(const Cube_Field& field, Cube_Handle cube) {
+    if (!cube_field_contains_handle(field, cube)) {
+        return Vector3{};
+    }
+
+    return cube_field_coordinate_center(field, cube_field_coordinate(field, cube));
+}
+
+Vector3 cube_field_center(const Cube_Field& field) {
+    Vector3 center = {};
+    if (field.cube_count == 0u) {
+        return center;
+    }
+
+    center.x = 0.5f * (field.bounds_min.x + field.bounds_max.x);
+    center.y = 0.5f * (field.bounds_min.y + field.bounds_max.y);
+    center.z = 0.5f * (field.bounds_min.z + field.bounds_max.z);
+    return center;
+}
+
+Vector3 cube_field_half_extents(const Cube_Field& field) {
+    Vector3 half_extents = {};
+    if (field.cube_count == 0u) {
+        return half_extents;
+    }
+
+    half_extents.x = 0.5f * (field.bounds_max.x - field.bounds_min.x);
+    half_extents.y = 0.5f * (field.bounds_max.y - field.bounds_min.y);
+    half_extents.z = 0.5f * (field.bounds_max.z - field.bounds_min.z);
+    return half_extents;
+}
+
+void cube_field_cube_bounds(const Cube_Field& field, Cube_Handle cube, Vector3& bounds_min,
+                            Vector3& bounds_max) {
+    bounds_min = Vector3{};
+    bounds_max = Vector3{};
+    if (!cube_field_contains_handle(field, cube)) {
+        return;
+    }
+
+    Vector3 center = cube_field_cube_center(field, cube);
+    float half_cube_size = 0.5f * field.cube_size;
+    bounds_min =
+        Vector3{center.x - half_cube_size, center.y - half_cube_size, center.z - half_cube_size};
+    bounds_max =
+        Vector3{center.x + half_cube_size, center.y + half_cube_size, center.z + half_cube_size};
+}
+
+Cube_Handle cube_field_world_handle(const Cube_Field& field, Vector3 world_position) {
+    if (field.cube_count == 0u || field.spacing <= 0.0f) {
+        return CUBE_HANDLE_NONE;
+    }
+
+    if (world_position.x < field.bounds_min.x || world_position.x > field.bounds_max.x ||
+        world_position.y < field.bounds_min.y || world_position.y > field.bounds_max.y ||
+        world_position.z < field.bounds_min.z || world_position.z > field.bounds_max.z) {
+        return CUBE_HANDLE_NONE;
+    }
+
+    int64_t x = (int64_t)floorf((world_position.x - field.first_center.x) / field.spacing + 0.5f);
+    int64_t y = (int64_t)floorf((world_position.y - field.first_center.y) / field.spacing + 0.5f);
+    int64_t z = (int64_t)floorf((world_position.z - field.first_center.z) / field.spacing + 0.5f);
+    if (x < 0 || y < 0 || z < 0 || (uint64_t)x >= field.dimensions.x ||
+        (uint64_t)y >= field.dimensions.y || (uint64_t)z >= field.dimensions.z) {
+        return CUBE_HANDLE_NONE;
+    }
+
+    return cube_field_handle(field, Grid_Coordinate{(uint32_t)x, (uint32_t)y, (uint32_t)z});
+}
+
+int cube_data_initialize(Cube_Data& data, const Cube_Field& field, alloc::Allocator& allocator) {
+    memset(&data, 0, sizeof(data));
+    if (field.cube_count == 0u || !alloc::allocator_is_valid(allocator)) {
+        return 0;
+    }
+
+    size_t allocation_size = (size_t)field.cube_count + CUBE_HANDLE_FIRST;
+    data.values = (uint8_t*)alloc::allocator_allocate(allocator, allocation_size,
+                                                      alloc::ALLOCATOR_CACHE_LINE_SIZE);
+    if (data.values == 0) {
+        return 0;
+    }
+
+    data.allocation_size = allocation_size;
+    data.allocation_alignment = alloc::ALLOCATOR_CACHE_LINE_SIZE;
+    data.cube_count = field.cube_count;
+    data.values[CUBE_HANDLE_NONE] = CUBE_VALUE_NONE;
+
+    Cube_Handle cube = CUBE_HANDLE_FIRST;
+    for (uint32_t z = 0u; z < field.dimensions.z; ++z) {
+        for (uint32_t y = 0u; y < field.dimensions.y; ++y) {
+            for (uint32_t x = 0u; x < field.dimensions.x; ++x) {
+                data.values[cube] = (uint8_t)(CUBE_VALUE_A + (cube_value_hash(x, y, z) & 3u));
+                ++cube;
             }
         }
     }
 
-    return 0;
+    return 1;
 }
 
-void cube_data_release(Cube_Data& d, alloc::Allocator& allocator)
-{
-    alloc::allocator_free(allocator, d.values);
-    d = Cube_Data{};
+void cube_data_shutdown(Cube_Data& data, alloc::Allocator& allocator) {
+    alloc::allocator_release(allocator, data.values, data.allocation_size,
+                             data.allocation_alignment);
+    memset(&data, 0, sizeof(data));
 }
 
-Cube_Value cube_value_at(const Cube_Data& d, Cube_Handle h)
-{
-    if (h < d.count) {
-        return (Cube_Value)d.values[h];
+uint8_t cube_data_value(const Cube_Data& data, Cube_Handle cube) {
+    if (data.values == 0 || cube == CUBE_HANDLE_NONE || cube > data.cube_count) {
+        return data.zero_stub;
     }
 
-    return CUBE_VALUE_NONE;
+    return data.values[cube];
 }
 
-const char* cube_value_name(Cube_Value v)
-{
-    static const char* names[CUBE_VALUE_COUNT] = {"-", "A", "B", "C", "D"};
-    if ((uint32_t)v < CUBE_VALUE_COUNT) {
-        return names[v];
+void cube_palette_set_initialize(Cube_Palette_Set& set) {
+    memset(&set, 0, sizeof(set));
+
+    set.palettes[CUBE_PALETTE_HANDLE_DEFAULT].name = "default";
+    set.palettes[CUBE_PALETTE_HANDLE_DEFAULT].styles[CUBE_VALUE_A] =
+        Cube_Visual_Style{BLUE, Color{18, 52, 150, 255}};
+    set.palettes[CUBE_PALETTE_HANDLE_DEFAULT].styles[CUBE_VALUE_B] =
+        Cube_Visual_Style{RED, Color{140, 18, 32, 255}};
+    set.palettes[CUBE_PALETTE_HANDLE_DEFAULT].styles[CUBE_VALUE_C] =
+        Cube_Visual_Style{GREEN, Color{18, 120, 44, 255}};
+    set.palettes[CUBE_PALETTE_HANDLE_DEFAULT].styles[CUBE_VALUE_D] =
+        Cube_Visual_Style{Color{255, 255, 255, 153}, Color{170, 180, 198, 255}};
+
+    set.palettes[CUBE_PALETTE_HANDLE_PASTEL].name = "pastel";
+    set.palettes[CUBE_PALETTE_HANDLE_PASTEL].styles[CUBE_VALUE_A] =
+        Cube_Visual_Style{SKYBLUE, DARKBLUE};
+    set.palettes[CUBE_PALETTE_HANDLE_PASTEL].styles[CUBE_VALUE_B] =
+        Cube_Visual_Style{ORANGE, MAROON};
+    set.palettes[CUBE_PALETTE_HANDLE_PASTEL].styles[CUBE_VALUE_C] =
+        Cube_Visual_Style{LIME, DARKGREEN};
+    set.palettes[CUBE_PALETTE_HANDLE_PASTEL].styles[CUBE_VALUE_D] =
+        Cube_Visual_Style{Color{255, 255, 255, 153}, DARKGRAY};
+
+    set.palettes[CUBE_PALETTE_HANDLE_WARM].name = "warm";
+    set.palettes[CUBE_PALETTE_HANDLE_WARM].styles[CUBE_VALUE_A] = Cube_Visual_Style{PURPLE, VIOLET};
+    set.palettes[CUBE_PALETTE_HANDLE_WARM].styles[CUBE_VALUE_B] = Cube_Visual_Style{GOLD, ORANGE};
+    set.palettes[CUBE_PALETTE_HANDLE_WARM].styles[CUBE_VALUE_C] =
+        Cube_Visual_Style{Color{0, 210, 170, 255}, Color{0, 92, 78, 255}};
+    set.palettes[CUBE_PALETTE_HANDLE_WARM].styles[CUBE_VALUE_D] =
+        Cube_Visual_Style{Color{255, 255, 255, 153}, Color{105, 92, 135, 255}};
+    set.active_palette = CUBE_PALETTE_HANDLE_DEFAULT;
+}
+
+void cube_palette_set_select(Cube_Palette_Set& set, Cube_Palette_Handle palette) {
+    if (palette >= CUBE_PALETTE_CAPACITY) {
+        palette = CUBE_PALETTE_HANDLE_NONE;
     }
 
-    return "-";
+    set.active_palette = palette;
 }
 
-void cube_palettes_init(Cube_Palette_Table& t)
-{
-    t.count = 3;
-
-    t.palettes[0].name = "default";
-    t.palettes[0].fill[0] = BLANK;
-    t.palettes[0].fill[1] = BLUE;
-    t.palettes[0].fill[2] = RED;
-    t.palettes[0].fill[3] = GREEN;
-    t.palettes[0].fill[4] = Color{255,255,255,153};
-    t.palettes[0].edge[0] = BLANK;
-    t.palettes[0].edge[1] = SKYBLUE;
-    t.palettes[0].edge[2] = MAROON;
-    t.palettes[0].edge[3] = LIME;
-    t.palettes[0].edge[4] = LIGHTGRAY;
-
-    t.palettes[1].name = "pastel";
-    t.palettes[1].fill[0] = BLANK;
-    t.palettes[1].fill[1] = Color{70,130,255,255};
-    t.palettes[1].fill[2] = Color{255,95,95,255};
-    t.palettes[1].fill[3] = Color{80,220,120,255};
-    t.palettes[1].fill[4] = Color{255,255,255,153};
-    t.palettes[1].edge[0] = BLANK;
-    t.palettes[1].edge[1] = Color{20,70,210,255};
-    t.palettes[1].edge[2] = Color{190,30,30,255};
-    t.palettes[1].edge[3] = Color{20,150,70,255};
-    t.palettes[1].edge[4] = Color{130,130,130,255};
-
-    t.palettes[2].name = "warm";
-    t.palettes[2].fill[0] = BLANK;
-    t.palettes[2].fill[1] = Color{30,160,220,255};
-    t.palettes[2].fill[2] = Color{240,110,40,255};
-    t.palettes[2].fill[3] = Color{180,220,60,255};
-    t.palettes[2].fill[4] = Color{255,255,255,153};
-    t.palettes[2].edge[0] = BLANK;
-    t.palettes[2].edge[1] = Color{10,80,130,255};
-    t.palettes[2].edge[2] = Color{150,50,15,255};
-    t.palettes[2].edge[3] = Color{90,140,20,255};
-    t.palettes[2].edge[4] = Color{150,150,150,255};
-}
-
-const Cube_Palette& cube_palette(const Cube_Palette_Table& table, uint32_t index)
-{
-    uint32_t selected_index = 0;
-    if (table.count) {
-        selected_index = index%table.count;
+const Cube_Palette& cube_palette_set_get(const Cube_Palette_Set& set, Cube_Palette_Handle palette) {
+    if (palette >= CUBE_PALETTE_CAPACITY) {
+        palette = CUBE_PALETTE_HANDLE_NONE;
     }
 
-    return table.palettes[selected_index];
+    return set.palettes[palette];
 }
 
+const Cube_Palette& cube_palette_set_active(const Cube_Palette_Set& set) {
+    return cube_palette_set_get(set, set.active_palette);
 }
+
+const Cube_Visual_Style& cube_palette_style(const Cube_Palette& palette, uint8_t value) {
+    if (value >= CUBE_VALUE_COUNT) {
+        value = CUBE_VALUE_NONE;
+    }
+
+    return palette.styles[value];
+}
+
+const char* cube_value_label(uint8_t value) {
+    if (value >= CUBE_VALUE_COUNT) {
+        value = CUBE_VALUE_NONE;
+    }
+
+    return CUBE_VALUE_LABELS[value];
+}
+
+} // namespace app

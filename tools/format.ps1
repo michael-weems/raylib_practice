@@ -4,9 +4,7 @@ param(
 
     [switch] $Write,
 
-    [switch] $List,
-
-    [switch] $IncludeVendor
+    [switch] $List
 )
 
 . "$PSScriptRoot\common-build.ps1"
@@ -16,27 +14,40 @@ Set-Location -LiteralPath $repoRoot
 
 function Get-FormatCandidateFiles {
     param(
-        [string[]] $SearchPaths,
-        [switch] $IncludeVendorFiles
+        [string[]] $SearchPaths
     )
 
-    $existingPaths = @()
+    $vendorRoot = (Resolve-RepoPath -Path 'vendor').TrimEnd('\', '/')
+    $extensions = @('.c', '.cc', '.cpp', '.h', '.hh', '.hpp')
+    $directoryPaths = @()
+    $candidateFiles = @()
     foreach ($path in $SearchPaths) {
         $resolved = Resolve-RepoPath -Path $path
-        if (Test-Path -LiteralPath $resolved) {
-            $existingPaths += $resolved
+        if (-not (Test-Path -LiteralPath $resolved)) {
+            continue
+        }
+
+        $pathIsVendor = $resolved.Equals($vendorRoot, [System.StringComparison]::OrdinalIgnoreCase)
+        $pathIsInsideVendor = $resolved.StartsWith(
+            $vendorRoot + [System.IO.Path]::DirectorySeparatorChar,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+        if ($pathIsVendor -or $pathIsInsideVendor) {
+            throw "Formatting vendored code is prohibited: $resolved"
+        }
+
+        if (Test-Path -LiteralPath $resolved -PathType Leaf) {
+            if ($extensions -contains [System.IO.Path]::GetExtension($resolved).ToLowerInvariant()) {
+                $candidateFiles += $resolved
+            }
+        } else {
+            $directoryPaths += $resolved
         }
     }
 
-    if ($existingPaths.Count -eq 0) {
-        return @()
-    }
-
-    if (Get-Command rg -ErrorAction SilentlyContinue) {
+    if ($directoryPaths.Count -ne 0 -and (Get-Command rg -ErrorAction SilentlyContinue)) {
         $rgArgs = @('--files')
-        if (-not $IncludeVendorFiles) {
-            $rgArgs += @('-g', '!vendor/**')
-        }
+        $rgArgs += @('-g', '!vendor/**')
         $rgArgs += @(
             '-g', '*.c',
             '-g', '*.cc',
@@ -45,23 +56,35 @@ function Get-FormatCandidateFiles {
             '-g', '*.hh',
             '-g', '*.hpp'
         )
-        $rgArgs += $existingPaths
-
-        return @(& rg @rgArgs | Sort-Object)
+        $rgArgs += $directoryPaths
+        $candidateFiles += @(& rg @rgArgs)
+        if ($LASTEXITCODE -gt 1) {
+            throw "ripgrep failed while discovering format candidates with exit code $LASTEXITCODE"
+        }
+    } elseif ($directoryPaths.Count -ne 0) {
+        foreach ($directoryPath in $directoryPaths) {
+            $candidateFiles += @(Get-ChildItem -LiteralPath $directoryPath -Recurse -File |
+                Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() } |
+                ForEach-Object { $_.FullName })
+        }
     }
 
-    $extensions = @('.c', '.cc', '.cpp', '.h', '.hh', '.hpp')
-    $files = foreach ($path in $existingPaths) {
-        Get-ChildItem -LiteralPath $path -Recurse -File | Where-Object {
-            $extensions -contains $_.Extension.ToLowerInvariant() -and
-            ($IncludeVendorFiles -or $_.FullName -notlike (Join-Path $repoRoot 'vendor\*'))
-        } | ForEach-Object { $_.FullName }
+    $projectFiles = foreach ($candidate in $candidateFiles) {
+        $fullPath = [System.IO.Path]::GetFullPath($candidate)
+        $insideVendor = $fullPath.Equals($vendorRoot, [System.StringComparison]::OrdinalIgnoreCase)
+        $insideVendor = $insideVendor -or $fullPath.StartsWith(
+            $vendorRoot + [System.IO.Path]::DirectorySeparatorChar,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+        if (-not $insideVendor) {
+            $fullPath
+        }
     }
 
-    return @($files | Sort-Object)
+    return @($projectFiles | Sort-Object -Unique)
 }
 
-$files = Get-FormatCandidateFiles -SearchPaths $Paths -IncludeVendorFiles:$IncludeVendor
+$files = @(Get-FormatCandidateFiles -SearchPaths $Paths)
 if ($files.Count -eq 0) {
     Write-Host 'No C/C++ source files found.'
     exit 0
@@ -72,14 +95,12 @@ if ($List) {
     exit 0
 }
 
-if (-not (Get-Command clang-format -ErrorAction SilentlyContinue)) {
-    throw 'clang-format was not found on PATH. Install LLVM/clang-format, or run with -List to inspect candidate files.'
-}
+$clangFormat = Find-ClangFormat
 
 if ($Write) {
     Write-Host "Formatting $($files.Count) file(s)."
-    Invoke-NativeCommand -FilePath 'clang-format' -Arguments (@('-i') + $files)
+    Invoke-NativeCommand -FilePath $clangFormat -Arguments (@('-i') + $files)
 } else {
     Write-Host "Checking formatting for $($files.Count) file(s). Use -Write to apply changes."
-    Invoke-NativeCommand -FilePath 'clang-format' -Arguments (@('--dry-run', '--Werror') + $files)
+    Invoke-NativeCommand -FilePath $clangFormat -Arguments (@('--dry-run', '--Werror') + $files)
 }

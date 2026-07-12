@@ -3,3 +3,6 @@ out/
 vendor/
 node_modules/
 assets/
+*.obj
+*.pdb
+*.ilk

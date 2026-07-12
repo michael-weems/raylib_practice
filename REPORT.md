@@ -5,9 +5,16 @@
 This report explains what the project does, why it is structured as it is, and
 how a three-dimensional scene becomes pixels in a window. It is written for a
 reader who is new to graphics programming. The early sections establish the
-graphics vocabulary; later sections connect each idea to the actual source.
+graphics vocabulary; later sections connect each idea to the finished source
+under `reference/`.
 
-The document describes the implementation as it exists on July 4, 2026.
+The document describes the definitive reference implementation as it exists on
+July 11, 2026.
+
+> **Source roles:** `reference/` is the independent, finished implementation
+> documented here. `src/` is the learner's checkpoint-by-checkpoint rebuild and
+> intentionally does not yet contain every module or feature described below.
+> The Git tag `baseline` is historical design evidence, not the current oracle.
 
 > **Core idea:** the application describes a world containing 50 million
 > possible cubes, but it never attempts to draw all 50 million. It derives cube
@@ -106,9 +113,10 @@ The architecture has four main layers:
 
 | Layer | Responsibility |
 |---|---|
-| `main.cpp` | Composition root, memory policy, and top-level loop |
-| `app` | Cube-field rules, views, controls, picking, and frame composition |
-| `sdk` | Project-specific wrappers around Raylib runtime, camera, and drawing |
+| `reference/main.cpp` | Composition root, memory policy, and top-level loop |
+| `reference/app` | Cube-field rules, views, controls, picking, and frame composition |
+| `reference/sdk` | Project-specific utilities that complement Raylib's camera and drawing APIs |
+| `reference/allocators` | Caller-controlled persistent and temporary memory policy |
 | Raylib + `rlsw` | Window/input services and CPU rasterization |
 
 The design is intentionally data-oriented. It uses plain structs and free
@@ -347,12 +355,12 @@ rasterization throughput.
 
 ## 4. How graphics 101 applies here
 
-The project maps the general pipeline onto concrete functions:
+The reference maps the general pipeline onto concrete functions:
 
 | Rendering concept | Project implementation |
 |---|---|
 | Choose visible content | Focused region or sparse birds-eye shell loops |
-| Camera | `Sdk_Orbit_Camera`, materialized as `Camera3D` |
+| Camera | `sdk::Orbit_Camera`, materialized as Raylib `Camera3D` |
 | Geometry | Cubes, face quads, lines, cylinders, cones, and text quads |
 | World placement | Cube centers derived from integer coordinates |
 | Projection | Raylib `BeginMode3D` with perspective `Camera3D` |
@@ -362,9 +370,10 @@ The project maps the general pipeline onto concrete functions:
 | Presentation | Raylib frame end through the RGFW platform backend |
 
 Raylib supplies a convenient vocabulary, while the application retains control
-over what is submitted and in what order. The `sdk` module concentrates the
-Raylib-specific behavior so that cube-field rules do not leak into generic
-rendering helpers.
+over what is submitted and in what order. The `sdk` module adds focused
+utilities for policies the application repeatedly needs; it does not mirror or
+hide Raylib's API. Cube-field rules stay in `app` rather than leaking into those
+rendering and camera utilities.
 
 ## 5. User experience and controls
 
@@ -384,7 +393,7 @@ forward/back navigation deliberately maps onto the field's Y axis so the user
 can move between vertical layers.
 
 Focused view adds detail: nearby cubes, per-face text, local compass arrows,
-and grid patches near the field boundary. Birds-eye view favors context: a
+and selectively detailed grid lines near the field boundary. Birds-eye view favors context: a
 coarse shell, no face text, and very large field-scale compass arrows.
 
 ## 6. System architecture
@@ -393,9 +402,9 @@ coarse shell, no face text, and very large field-scale compass arrows.
 
 ```mermaid
 flowchart TD
-    M["main.cpp<br/>composition and memory policy"]
-    A["app<br/>field, views, input, picking, frame composition"]
-    S["sdk<br/>runtime, orbit camera, render primitives"]
+    M["reference/main.cpp<br/>composition and memory policy"]
+    A["reference/app<br/>field, views, picking, frame composition"]
+    S["reference/sdk<br/>runtime policy, orbit camera, immediate primitives"]
     R["Raylib rlgl<br/>graphics API abstraction"]
     W["rlsw<br/>CPU software rasterizer"]
     P["RGFW / Win32<br/>window, events, presentation"]
@@ -419,25 +428,23 @@ means.
 
 | Module | Main data | Main behavior |
 |---|---|---|
-| `src/main.cpp` | Allocators and `App_State` | Allocate, initialize, loop, reset, shut down |
-| `allocators/allocator` | Callback interface and requirements | Dispatch caller-selected allocation policy |
-| `allocators/aligned_allocator` | Stateless adapter | Persistent aligned heap allocation |
-| `allocators/arena_allocator` | Memory, capacity, used offset | Fast temporary allocation and whole-frame reset |
-| `app/app` | Configuration and complete app state | Validate, initialize, update, render, shut down |
-| `app/cube_field` | Field metadata, value bytes, palettes | Handle conversion, generation, style lookup |
-| `app/cube_view` | Regions, lattice, pick query/result | Sparse view math and collision candidates |
-| `app/input` | One input snapshot | Convert physical keys/buttons into semantic actions |
-| `app/view_controller` | Mode, selected handle, orbit state | Switching, snapping, navigation, camera derivation |
-| `app/renderer` | Render config/data/frame | Compose focused or birds-eye immediate draw calls |
-| `sdk/runtime` | Window configuration | Window and frame lifecycle |
-| `sdk/orbit_camera` | Target, yaw, pitch, distance | Mouse orbit and Raylib camera construction |
-| `sdk/render` | Draw packets and resource bundle | Cubes, faces, text, arrows, billboards, grids |
+| `reference/main.cpp` | Allocators and `Application` | Allocate, initialize, loop, reset, shut down |
+| `reference/allocators/allocator` | Size/alignment-aware callbacks and requirements | Dispatch caller-selected memory policy with a safe zero interface |
+| `reference/allocators/aligned_allocator` | Stateless heap adapter | Supply 64-byte-aligned persistent memory |
+| `reference/allocators/arena_allocator` | Non-owning block, used offset, high-water mark | Supply checked, resettable frame memory with no fallback |
+| `reference/app/application` | Configuration, input/controller state, resources | Validate, initialize, update, compose a frame, shut down |
+| `reference/app/cube_field` | Field metadata, value bytes, palettes | Handle conversion, generation, style lookup |
+| `reference/app/cube_view` | Regions, lattice, pick query/result | Sparse view mathematics and drawing/picking candidates |
+| `reference/sdk/runtime` | Window configuration | Own project runtime policy while direct frame calls remain Raylib calls |
+| `reference/sdk/orbit_camera` | Target, yaw, pitch, distance | Cursor transitions, orbit policy, and `Camera3D` derivation |
+| `reference/sdk/rendering` | Draw packets, resources, face commands | Immediately consume cubes, faces, text, arrows, and billboards |
 
 ### 6.3 Dependency direction
 
 The source is split by knowledge:
 
-- `sdk` knows **how** to request a visual operation from Raylib.
+- `sdk` knows **how** to implement the small reusable policies that complement
+  direct Raylib calls.
 - `app` knows **what** this cube-field application wants to display.
 - `main.cpp` knows **where memory comes from** and **when a frame begins and
   ends** at the application level.
@@ -452,35 +459,38 @@ Startup happens in dependency order:
 
 1. Fill the complete default configuration.
 2. Validate cross-module invariants.
-3. Ask the renderer for worst-case temporary memory requirements.
+3. Ask the application frame composer for worst-case temporary memory
+   requirements.
 4. Allocate one backing block and bind the frame arena to it.
 5. Initialize field metadata.
 6. Initialize the Raylib runtime.
 7. Allocate and generate immutable cube values.
-8. Initialize palettes, fonts, and direction-label texture atlas.
+8. Initialize palettes and the reusable font resource.
 9. Initialize the focused camera and capture the cursor.
 
-Every frame then follows a stable update/draw/reset pattern:
+Every frame then follows a stable update/draw/reset pattern. The application
+owns the frame's decisions; the composition root owns the temporary-memory
+policy and resets it only after `application_frame` returns:
 
 ```mermaid
 sequenceDiagram
     participant Main as main.cpp
     participant App as app
-    participant View as view/controller
-    participant Renderer as app renderer
-    participant SDK as sdk/Raylib
+    participant View as cube field/view math
+    participant SDK as sdk immediate utilities
+    participant Raylib as Raylib/rlgl
     participant Arena as temporary arena
 
-    Main->>App: app_update(app)
+    Main->>App: application_frame(app, temporary_allocator)
     App->>App: poll one input snapshot
     App->>View: mode, navigation, orbit, selection
-    Main->>App: app_render(app, temporary_allocator)
-    App->>SDK: begin frame and clear
-    App->>Renderer: draw immediate frame
-    Renderer->>Arena: allocate transient face commands
-    Renderer->>SDK: submit cubes/faces/text/arrows/grids
-    Renderer-->>Arena: commands no longer referenced
-    App->>SDK: end frame and present
+    App->>Raylib: BeginDrawing, clear, BeginMode3D
+    App->>Arena: allocate transient face commands
+    App->>SDK: submit cubes/faces/text/arrows
+    SDK->>Raylib: immediate draw and rlgl calls
+    App-->>Arena: commands no longer referenced
+    App->>Raylib: EndMode3D, overlay, EndDrawing
+    App-->>Main: application result
     Main->>Arena: reset all temporary memory
 ```
 
@@ -489,7 +499,9 @@ camera snapshot, avoiding disagreement between what the user saw and what the
 selection ray tests.
 
 Shutdown reverses ownership: camera/cursor state, render resources, cube data,
-runtime, arena backing, then process exit.
+runtime, caller-owned arena backing, then process exit. Persistent allocator and
+temporary allocator parameters remain explicit at the calls that may acquire or
+release their memory.
 
 ## 8. Data model
 
@@ -549,7 +561,9 @@ The benefits are:
 - bounds checking is centralized in handle-resolution functions;
 - the application avoids null checks throughout its hot loops.
 
-Palette and direction identities use the same zero-stub convention.
+Palette identities use the same zero-stub convention. Dense transient arrays,
+such as six local axis directions within one draw call, remain ordinary
+zero-based streams because their indexes are not persistent identities.
 
 ### 8.3 Cube values
 
@@ -568,7 +582,7 @@ is generated once during startup and remains immutable.
 
 Values are deterministic: the coordinate is mixed through a 32-bit hash, and
 the low two bits select A through D. The avalanche mixing matters because
-birds-eye sampling advances through the source data by a power-of-two stride.
+birds-eye sampling advances through the source data at a regular stride.
 A weak low-bit pattern could otherwise make an entire sampled face appear to
 contain the same category.
 
@@ -609,7 +623,8 @@ The project supports locality by:
 - deriving transforms rather than chasing transform pointers;
 - keeping palette fill and edge colors adjacent;
 - storing transient commands contiguously;
-- aligning the cube value stream to a cache-line boundary;
+- aligning application hot state, the cube value stream, and transient command
+  storage to cache-line boundaries;
 - avoiding allocation and callback dispatch inside cube hot loops.
 
 Cache alignment does not make random access free. It gives the CPU predictable
@@ -625,7 +640,7 @@ The project distinguishes memory by lifetime:
 | Lifetime | Examples | Policy |
 |---|---|---|
 | Persistent | 50-million-byte value stream | Aligned heap; released at shutdown |
-| Raylib-owned | Window, font, texture atlas | Raylib load/unload functions |
+| Raylib-owned | Window and font glyph texture | Raylib load/unload functions |
 | Per-frame temporary | Transparent/shell face commands | Caller-owned arena; reset each frame |
 | Stack/value state | Queries, coordinates, draw packets | Automatic local storage |
 
@@ -636,7 +651,8 @@ or surviving accidentally.
 
 Any project API that acquires project-owned memory accepts an `Allocator&`.
 The allocator is a small interface containing a context pointer and allocate /
-release callbacks.
+release callbacks. Both operations carry size and alignment, allowing the
+caller to validate or route deallocation without hidden allocator metadata.
 
 This gives the composition root control over memory placement. A lower-level
 module states its size and alignment needs without deciding whether the memory
@@ -648,9 +664,9 @@ command array has been acquired, the hot loop uses direct indexed access.
 ### 9.3 Arena allocation
 
 An arena is a caller-provided memory block plus a current offset. Allocation
-aligns the offset, advances it, and returns a pointer. Individual releases do
-nothing. Resetting the offset to zero makes all frame allocations available
-again at once.
+validates power-of-two alignment and overflow, aligns the offset, advances it,
+and returns a pointer. Individual releases do nothing. Resetting the offset to
+zero makes all frame allocations available again at once.
 
 ```mermaid
 flowchart TD
@@ -660,10 +676,13 @@ flowchart TD
     F2 --> R2["reset used = 0"]
 ```
 
-The renderer computes its worst-case scratch requirement before startup. The
+The application computes its worst-case render scratch requirement before
+startup. The
 arena has no hidden heap fallback: exhaustion is a visible frame error. This
 makes memory behavior deterministic and ensures an accidental workload increase
-does not silently introduce per-frame heap allocation.
+does not silently introduce per-frame heap allocation. A high-water mark records
+the largest observed `used` offset across resets, so measured frame demand can
+be compared with the startup requirement without retaining frame allocations.
 
 No arena pointer may survive the frame reset. The immediate-mode renderer makes
 that rule easy to uphold because SDK draw calls consume command arrays before
@@ -671,9 +690,10 @@ returning.
 
 ## 10. Input camera and navigation
 
-Raylib input is sampled exactly once per frame into `App_Input_Frame`. Physical
-bindings become semantic action bits such as `APP_ACTION_TOGGLE_VIEW` or
-`APP_ACTION_NAVIGATE_LEFT`.
+The application samples Raylib input once per frame before applying camera,
+mode, palette, navigation, and picking decisions. Physical bindings become
+semantic actions at that application boundary rather than being repolled by
+several rendering helpers.
 
 This snapshot prevents two systems from polling mouse delta independently and
 seeing inconsistent results. The app layer dispatches the packet to view and
@@ -731,7 +751,7 @@ future frame.
 ```text
 app computes draw packet
         ↓
-sdk_render_* consumes it now
+sdk::draw_*_immediate consumes it now
         ↓
 function returns; packet may be discarded
 ```
@@ -765,32 +785,35 @@ Back-facing face text is rejected.
 ### 12.3 Birds-eye view
 
 The full field's exterior alone contains far too many cubes for CPU rendering.
-Birds-eye mode builds a virtual lattice sampled every 32 source cells:
+Birds-eye mode builds a virtual lattice whose default block spans ten source
+cells along each axis:
 
 ```text
 source dimensions:     500 × 1000 × 100
-sample dimensions:      16 ×   32 ×   4
-representative size:    32 × spacing = 160 world units
+sample dimensions:      50 ×  100 ×  10
+representative size:    10 × spacing = 50 world units
 ```
 
-Only the six outer surfaces are enumerated. Later surface loops exclude edges
-already handled by earlier loops, so corners and boundaries are not duplicated.
-This produces roughly 1,200 outward face commands instead of drawing the
-original exterior's roughly 1.2 million cubes—and dramatically less than the
-50 million-cube volume.
+Only the six outward surfaces are enumerated directly. A representative on an
+edge or corner owns a distinct outward face for each shell plane it touches,
+but no interior or coincident inward face is emitted. This produces about
+13,000 outward face commands instead of drawing the original exterior's
+roughly 1.2 million cubes—and dramatically less than the 50-million-cube
+volume.
 
 ```mermaid
 flowchart LR
-    A["Dense source field<br/>500 × 1000 × 100"] --> B["Endpoint-preserving<br/>stride-32 sampling"]
-    B --> C["Virtual lattice<br/>16 × 32 × 4"]
+    A["Dense source field<br/>500 × 1000 × 100"] --> B["Endpoint-preserving<br/>block-span-10 sampling"]
+    B --> C["Virtual lattice<br/>50 × 100 × 10"]
     C --> D["Enumerate exterior only"]
-    D --> E["~1,200 outward faces"]
+    D --> E["~13,000 outward faces"]
 ```
 
 Representative centers are spaced exactly one representative edge length
 apart. Consequently, neighbors touch without overlap or gaps. Each virtual
-coordinate maps independently to an evenly distributed source coordinate for
-value lookup and selection identity.
+coordinate maps independently to an evenly distributed source coordinate,
+including both endpoints. Drawing and picking use that same mapping, so the
+visible representative's value and selected source handle cannot disagree.
 
 No interior cubes, local boundary grids, or per-cube face text are drawn in this
 mode.
@@ -809,7 +832,7 @@ The SDK processes a face command batch in phases:
 
 1. opaque face fills;
 2. transparent face fills with depth writes disabled;
-3. selected face edges.
+3. palette-defined face edges.
 
 Local transparent cubes use six explicit quads rather than one conventional
 `DrawCubeV` fill. The vendored software renderer clears an internal alpha flag
@@ -843,13 +866,17 @@ down direction. Those vectors define the text plane. Repeated category and
 direction widths can be premeasured; dynamic cube-handle text is measured as
 needed.
 
-**Billboard compass labels** always face the viewer. The six fixed labels
-(`+x`, `-x`, `+y`, `-y`, `+z`, `-z`) are rasterized once at startup into a
-texture atlas. Per frame, the code selects a rectangle from that atlas rather
-than generating new images or uploading new textures.
+**Billboard compass labels** always face the viewer. Their glyph quads reuse the
+font texture loaded once at startup, so the frame loop creates no images and
+uploads no new textures.
 
 The billboard uses the camera's actual view-up basis, so labels follow both yaw
 and pitch instead of rotating only around world Y.
+
+Birds-eye compass labels are projected into the final 2D overlay at a much
+larger pixel size. A dark rectangular background preserves contrast, and the
+application queues only labels on the camera-visible side of the field so a
+far-side direction cannot appear through the cube shell.
 
 ### 12.7 Compasses and boundary grids
 
@@ -865,9 +892,13 @@ arrows originate from the selected cube's faces. In birds-eye mode they
 originate from the centers of the six virtual shell faces and extend far beyond
 the field so they remain visible.
 
-Focused mode also draws bounded grid patches when the selected neighborhood
-approaches an outer field boundary. These patches communicate the field's limit
-without drawing an enormous full-size grid. Birds-eye mode omits them.
+Focused mode also draws the six outer field boundary grids. Lines are dense
+near the active cube's projected coordinates, preserve the complete boundary,
+and become coarse major lines in the distance. This level of detail communicates
+the field's scale without submitting every full-resolution grid line. The app
+emits the selected lines in one immediate `rlgl` line batch instead of hundreds
+of independent `DrawLine3D` calls.
+Birds-eye mode omits the grids.
 
 ## 13. Performance strategy
 
@@ -878,6 +909,11 @@ workload. The frame budgets are approximately:
 |---:|---:|
 | 60 FPS | 16.67 ms |
 | 30 FPS | 33.33 ms |
+
+Performance claims use a clean isolated `RelWithDebInfo` or `Release` build,
+not Debug. Record the window resolution, compiler, backend log, view mode, and
+submission counters with the observed frame time so another run can reproduce
+the comparison.
 
 The implementation attacks cost in descending order of importance:
 
@@ -901,7 +937,10 @@ The implementation attacks cost in descending order of importance:
 
 Cache alignment is useful, but it is not a substitute for algorithmic culling.
 Skipping 49,999,000 cubes matters more than shaving a few instructions from a
-single cube draw.
+single cube draw. Recalculate cheap derived centers and bounds instead of
+loading redundant arrays, but do not treat calculation as universally cheaper
+than a cached load: division, hashing, trigonometry, branches, pixel coverage,
+and glyph submission must be measured in their actual loops.
 
 Potential future measurements should include:
 
@@ -945,8 +984,9 @@ project's meaningful guarantee is that its Raylib rendering backend is `rlsw`
 and its scene rasterization is CPU software rendering.
 
 Vendored Raylib is immutable. Backend quirks are handled in project-owned code.
-The optional `RLSW_USE_SIMD_INTRINSICS` path remains disabled because the
-current vendored MSVC path fails to compile around `_mm_loadu_si32`.
+The optional `RLSW_USE_SIMD_INTRINSICS` path remains disabled in the project
+builds; the application does not depend on that optional vendor optimization
+for its correctness or performance contract.
 
 ## 15. Implementation constraints and rationale
 
@@ -954,8 +994,10 @@ current vendored MSVC path fails to compile around `_mm_loadu_si32`.
 |---|---|
 | C++11, C-style structs/functions | Keep data and behavior explicit without class hierarchies |
 | No application classes or inheritance | Avoid hidden object ownership and virtual dispatch |
-| No STL containers in hot architecture | Preserve direct layout and allocation control |
+| No STL containers, smart pointers, templates, or lambdas in application architecture | Preserve direct layout, allocation control, and explicit flow |
 | Explicit for-loops | Make iteration bounds and access order obvious |
+| Descriptive "wide" names; one statement per line | Make semantically dense code readable without compressing control flow |
+| Avoid ternary expressions | Keep branches and state choices explicit |
 | References for required borrowed inputs | Express non-null contracts without pointer checks |
 | Pointers for backing memory and streams | Represent real memory ranges and C APIs honestly |
 | Integer handles for identities | Stable, compact identities with centralized resolution |
@@ -979,7 +1021,8 @@ is inert:
 
 - a zero allocator returns no memory and release is a no-op;
 - handle zero resolves to a zero stub;
-- zero view mode renders nothing successfully;
+- zero view/controller fields select harmless enum/handle defaults but do not
+  imply initialized resources;
 - zero ownership flags prevent unloading resources never acquired;
 - shutdown functions tolerate partial initialization.
 
@@ -987,7 +1030,8 @@ Initialization follows a dependency sequence. If one step fails, common
 shutdown logic releases only resources whose zero-safe ownership state says
 they exist.
 
-Expected failures use enums such as `App_Result`:
+Expected initialization failures use integer result codes representing cases
+such as:
 
 - invalid configuration;
 - invalid allocator;
@@ -1005,54 +1049,70 @@ invalid identities resolve to harmless values instead of unsafe pointers.
 ### Application prerequisites
 
 - Windows 11;
-- Visual Studio C/C++ build tools;
-- CMake;
+- LLVM with `clang-cl` and `clang-format`;
+- Visual Studio C++ build environment and Windows SDK;
+- CMake 3.24 or newer;
 - Ninja;
-- Git Bash for the provided shell scripts.
+- PowerShell;
+- Node.js and npm only when building this documentation.
 
 ### Build
 
-From Git Bash at the repository root:
+The learner and reference projects configure independently. Build the current
+learner checkpoint with:
 
-```bash
-./build
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-src.ps1
 ```
 
-The default build is `RelWithDebInfo`, which retains useful debug information
-without paying the full cost of an unoptimized software-renderer build. The
-executable is generated at:
+Build the definitive reference and run its registered tests with:
 
-```text
-out/build/software_renderer.exe
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-reference.ps1 -RunTests
 ```
 
-Build and run together with:
+Both commands use Clang/clang-cl by default. Pass `-Compiler MSVC` when an MSVC
+comparison is intentional. Ordinary learner checkpoints default to Debug so
+iteration stays simple; Debug FPS is not a performance result.
 
-```bash
-./make
+The default executables are `out/build/software_renderer.exe` and
+`out/reference-build/reference_software_renderer.exe`. Add `-Run` to the
+corresponding build script to launch it.
+
+For an isolated optimized performance build, use:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-performance.ps1 -App reference -BuildType RelWithDebInfo -CleanFirst -Run
 ```
 
-Pass an argument to `./make` to launch through `raddbg`, assuming it is on the
-path.
+This keeps optimized artifacts in `out/performance-reference`. Replace
+`reference` with `src` to measure the learner application. `RelWithDebInfo`
+retains useful symbols; `Release` is also available.
 
 ### Tests
 
-After building:
+The reference CMake project registers `reference_core_tests` with CTest. The
+build script above runs them, or use the repository-wide verification entry
+point:
 
 ```powershell
-ctest --test-dir out/build --output-on-failure -C RelWithDebInfo
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify-repo.ps1 -CleanFirst -RunFormatCheck
 ```
+
+That command checks whitespace, builds both independent applications, runs the
+reference tests, and optionally checks project-owned reference formatting.
+Vendored Raylib is treated as immutable and excluded from formatting.
 
 Core tests cover:
 
 - zero-state behavior;
-- arena alignment, exhaustion, and reset;
-- coordinate/handle round trips;
-- value and palette stubs;
-- overflow-safe sampling math;
-- focused-region clipping;
-- renderer scratch requirements;
-- camera-relative vertical navigation.
+- allocator contracts plus arena alignment, overflow, exhaustion, reset, and
+  high-water tracking;
+- odd/even centering and coordinate/handle round trips;
+- immutable value data plus value and one-based palette stubs;
+- focused-region clipping and Euclidean-radius acceptance;
+- endpoint-preserving sparse-lattice and exterior-shell enumeration;
+- exact drawing/picking source identity and pure ray-versus-box sparse picking.
 
 Interactive visual behavior still needs human verification because unit tests
 do not inspect the final software framebuffer.
@@ -1067,8 +1127,12 @@ Node.js and npm only for documentation development.
 From PowerShell or another shell at the repository root:
 
 ```powershell
-npm install
+npm ci
 ```
+
+`npm ci` uses the committed `package-lock.json`, making the local renderer
+repeatable without changing dependency versions. It requires network access
+only when the packages are not already present in npm's cache.
 
 ### Render once
 
@@ -1108,7 +1172,8 @@ npm run docs:serve -- --port=8080
 ```
 
 Generated documentation and `node_modules` are ignored by Git. The durable
-documentation inputs are `REPORT.md`, `package.json`, and `tools/docs.mjs`.
+documentation inputs are `REPORT.md`, `package.json`, `package-lock.json`, and
+`tools/docs.mjs`.
 
 ## 19. How to extend the project
 
@@ -1135,9 +1200,10 @@ No cube value data needs regeneration.
 ### Add a rendering primitive
 
 If it is reusable and knows nothing about cube-field rules, define a compact
-draw packet and immediate function in `sdk/render`. If it answers an
-application-specific question—such as which cubes receive the primitive—keep
-that decision in `app/renderer`.
+draw packet and immediate function in `reference/sdk/rendering`. If it answers
+an application-specific question—such as which cubes receive the primitive—keep
+that decision in `reference/app/application` or the cohesive view mathematics
+in `reference/app/cube_view`.
 
 The SDK function should consume all borrowed command memory before returning.
 
@@ -1146,7 +1212,7 @@ The SDK function should consume all borrowed command memory before returning.
 1. Include its worst-case size in renderer memory-requirement calculation.
 2. Request it through the supplied `Allocator&`.
 3. Use it contiguously in the frame.
-4. Ensure no pointer survives `app_renderer_draw_frame`.
+4. Ensure no pointer survives the immediate application render call.
 5. Return a clear exhaustion result rather than falling back to the heap.
 
 ### Change field dimensions
@@ -1170,20 +1236,25 @@ mode transitions, memory requirements, and tests for boundary cases.
 
 For a new graphics programmer, this order builds understanding gradually:
 
-1. **`src/main.cpp`** — see the complete lifetime and frame loop.
-2. **`src/app/app.h` and `.cpp`** — see configuration and orchestration.
-3. **`src/app/cube_field.h` and `.cpp`** — understand handles, implicit
-   positions, values, and palettes.
-4. **`src/app/cube_view.h` and `.cpp`** — understand sparse regions, shell
-   sampling, and picking.
-5. **`src/sdk/orbit_camera.h` and `.cpp`** — connect mouse input to `Camera3D`.
-6. **`src/app/view_controller.h` and `.cpp`** — connect the camera to cube
-   selection and application modes.
-7. **`src/app/renderer.h` and `.cpp`** — see what each view chooses to draw.
-8. **`src/sdk/render.h` and `.cpp`** — see how geometry becomes Raylib/`rlgl`
+1. **`reference/main.cpp`** — see composition, allocator choice, and the
+   top-level lifetime.
+2. **`reference/app/application.h` and `.cpp`** — see configuration,
+   orchestration, input transitions, and immediate frame composition.
+3. **`reference/app/cube_field.h` and `.cpp`** — understand handles, implicit
+   positions, immutable values, and adjacent fill/edge palette styles.
+4. **`reference/app/cube_view.h` and `.cpp`** — understand focused regions,
+   endpoint-preserving shell sampling, and shared drawing/picking identity.
+5. **`reference/sdk/orbit_camera.h` and `.cpp`** — connect mouse input, cursor
+   transitions, orbit state, and Raylib `Camera3D`.
+6. **`reference/sdk/rendering.h` and `.cpp`** — see immediate cubes, faces,
+   transparency, text, arrows, and billboards become Raylib/`rlgl`
    submissions.
-9. **`src/allocators`** — understand persistent and frame memory policy.
-10. **`tests/core_tests.cpp`** — see important invariants expressed as examples.
+7. **`reference/sdk/runtime.h` and `.cpp`** — see the small project runtime
+   policy that complements direct Raylib frame calls.
+8. **`reference/allocators`** — understand the callback boundary, aligned
+   persistent allocation, arena alignment, reset, and high-water tracking.
+9. **`reference/tests_core.cpp`** — see important nonvisual invariants expressed
+   as executable examples.
 
 When reading the renderer, follow one simple opaque focused cube first. Then
 follow a transparent cube, a birds-eye face, face text, and finally edge

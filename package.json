@@ -1,0 +1,13 @@
+{
+  "name": "sw-render-documentation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:build": "node tools/docs.mjs build",
+    "docs:serve": "node tools/docs.mjs serve"
+  },
+  "devDependencies": {
+    "marked": "18.0.5",
+    "mermaid": "11.16.0"
+  }
+}

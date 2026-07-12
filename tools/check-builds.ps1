@@ -5,6 +5,9 @@ param(
 
     [string] $Generator = $(if ($env:CMAKE_GENERATOR) { $env:CMAKE_GENERATOR } else { 'Ninja' }),
 
+    [ValidateSet('ClangCl', 'MSVC')]
+    [string] $Compiler = $(if ($env:SW_RENDER_COMPILER) { $env:SW_RENDER_COMPILER } else { 'ClangCl' }),
+
     [switch] $SkipTests,
 
     [switch] $CleanFirst
@@ -20,6 +23,7 @@ $srcBuildPath = Invoke-CMakeBuild `
     -BuildDir 'out\build' `
     -BuildType $BuildType `
     -Generator $Generator `
+    -Compiler $Compiler `
     -Target 'software_renderer' `
     -CleanFirst:$CleanFirst
 
@@ -29,6 +33,7 @@ $referenceBuildPath = Invoke-CMakeBuild `
     -BuildDir 'out\reference-build' `
     -BuildType $BuildType `
     -Generator $Generator `
+    -Compiler $Compiler `
     -CleanFirst:$CleanFirst
 
 if (-not $SkipTests) {

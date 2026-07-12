@@ -1,244 +1,404 @@
 #include "sdk/rendering.h"
 
+#include "raymath.h"
 #include "rlgl.h"
 
-#include <math.h>
 #include <string.h>
 
 namespace sdk {
 
-static Vector3 v3_add(Vector3 a, Vector3 b) { return Vector3{a.x+b.x, a.y+b.y, a.z+b.z}; }
-static Vector3 v3_sub(Vector3 a, Vector3 b) { return Vector3{a.x-b.x, a.y-b.y, a.z-b.z}; }
-static Vector3 v3_mul(Vector3 a, float s) { return Vector3{a.x*s, a.y*s, a.z*s}; }
-static float v3_dot(Vector3 a, Vector3 b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
-static Vector3 v3_cross(Vector3 a, Vector3 b) { return Vector3{a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x}; }
-static float v3_len(Vector3 a) { return sqrtf(v3_dot(a, a)); }
-static Vector3 v3_norm(Vector3 a)
-{
-    float length = v3_len(a);
-    if (length > 0.0f) {
-        return v3_mul(a, 1.0f/length);
+// cross(down, right) is the outward face normal for every real direction.
+static const Axis_Direction_Info AXIS_DIRECTION_INFO[FACE_DIRECTION_COUNT] = {
+    {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {'\0', '\0', '\0'}, AXIS_NONE},
+    {{1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {0.0f, -1.0f, 0.0f}, {'+', 'x', '\0'}, AXIS_X},
+    {{-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, -1.0f, 0.0f}, {'-', 'x', '\0'}, AXIS_X},
+    {{0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {'+', 'y', '\0'}, AXIS_Y},
+    {{0.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {'-', 'y', '\0'}, AXIS_Y},
+    {{0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, {'+', 'z', '\0'}, AXIS_Z},
+    {{0.0f, 0.0f, -1.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, {'-', 'z', '\0'}, AXIS_Z}};
+
+const Axis_Direction_Info& axis_direction_info(uint32_t direction) {
+    if (direction >= FACE_DIRECTION_COUNT) {
+        direction = FACE_DIRECTION_NONE;
     }
 
-    return Vector3{0.0f, 0.0f, 0.0f};
+    return AXIS_DIRECTION_INFO[direction];
 }
 
-static void rl_vertex(Vector3 p)
-{
-    rlVertex3f(p.x, p.y, p.z);
+static float clamp_float(float value, float minimum, float maximum) {
+    if (value < minimum) {
+        return minimum;
+    }
+    if (value > maximum) {
+        return maximum;
+    }
+
+    return value;
 }
 
-static void emit_quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
-{
+static void cube_face_vertices(Vector3 center, float edge_length, uint32_t direction,
+                               Vector3& bottom_left, Vector3& bottom_right, Vector3& top_right,
+                               Vector3& top_left) {
+    const Axis_Direction_Info& direction_info = axis_direction_info(direction);
+    Vector3 face_up = Vector3Negate(direction_info.down);
+    float half_edge_length = 0.5f * edge_length;
+    Vector3 face_center = Vector3Add(center, Vector3Scale(direction_info.normal, half_edge_length));
+
+    bottom_left =
+        Vector3Subtract(face_center, Vector3Scale(direction_info.right, half_edge_length));
+    bottom_left = Vector3Subtract(bottom_left, Vector3Scale(face_up, half_edge_length));
+    bottom_right = Vector3Add(bottom_left, Vector3Scale(direction_info.right, edge_length));
+    top_right = Vector3Add(bottom_right, Vector3Scale(face_up, edge_length));
+    top_left = Vector3Add(bottom_left, Vector3Scale(face_up, edge_length));
+}
+
+static void emit_line(Vector3 start, Vector3 end, Color color) {
     rlColor4ub(color.r, color.g, color.b, color.a);
-    rl_vertex(a);
-    rl_vertex(b);
-    rl_vertex(c);
-    rl_vertex(d);
+    rlVertex3f(start.x, start.y, start.z);
+    rlVertex3f(end.x, end.y, end.z);
 }
 
-static Vector3 text_point(Vector3 origin, Vector3 right, Vector3 up, float x, float y)
-{
-    return v3_add(v3_add(origin, v3_mul(right, x)), v3_mul(up, -y));
+static void emit_opaque_face(const Cube_Face_Draw& draw) {
+    Vector3 bottom_left;
+    Vector3 bottom_right;
+    Vector3 top_right;
+    Vector3 top_left;
+    const Vector3 normal = axis_direction_info(draw.direction).normal;
+
+    cube_face_vertices(draw.center, draw.edge_length, draw.direction, bottom_left, bottom_right,
+                       top_right, top_left);
+    rlColor4ub(draw.fill_color.r, draw.fill_color.g, draw.fill_color.b, draw.fill_color.a);
+    rlNormal3f(normal.x, normal.y, normal.z);
+    rlVertex3f(bottom_left.x, bottom_left.y, bottom_left.z);
+    rlVertex3f(bottom_right.x, bottom_right.y, bottom_right.z);
+    rlVertex3f(top_right.x, top_right.y, top_right.z);
+    rlVertex3f(top_left.x, top_left.y, top_left.z);
 }
 
-static float text_width_world(Font font, const char* text, float scale, float spacing_world)
-{
-    float x = 0.0f;
-    if (!text) {
-        return 0.0f;
+static void emit_transparent_face(const Cube_Face_Draw& draw) {
+    Vector3 bottom_left;
+    Vector3 bottom_right;
+    Vector3 top_right;
+    Vector3 top_left;
+    const Vector3 normal = axis_direction_info(draw.direction).normal;
+
+    cube_face_vertices(draw.center, draw.edge_length, draw.direction, bottom_left, bottom_right,
+                       top_right, top_left);
+
+    // RLSW may clear primitive alpha state between its internal triangles.
+    // Repeat color and normal for both triangles so an entire face blends.
+    rlColor4ub(draw.fill_color.r, draw.fill_color.g, draw.fill_color.b, draw.fill_color.a);
+    rlNormal3f(normal.x, normal.y, normal.z);
+    rlVertex3f(bottom_left.x, bottom_left.y, bottom_left.z);
+    rlVertex3f(bottom_right.x, bottom_right.y, bottom_right.z);
+    rlVertex3f(top_right.x, top_right.y, top_right.z);
+
+    rlColor4ub(draw.fill_color.r, draw.fill_color.g, draw.fill_color.b, draw.fill_color.a);
+    rlNormal3f(normal.x, normal.y, normal.z);
+    rlVertex3f(bottom_left.x, bottom_left.y, bottom_left.z);
+    rlVertex3f(top_right.x, top_right.y, top_right.z);
+    rlVertex3f(top_left.x, top_left.y, top_left.z);
+}
+
+int render_resources_init(Render_Resources& resources, const Render_Resource_Config& config) {
+    memset(&resources, 0, sizeof(resources));
+    if (config.font_path == 0 || config.font_pixel_size <= 0) {
+        return 1;
     }
 
-    for (const char* at = text; *at; ++at) {
-        int gi = GetGlyphIndex(font, (unsigned char)*at);
-        Rectangle rec = font.recs[gi];
-        GlyphInfo g = font.glyphs[gi];
-        int advance = g.advanceX;
-        if (!advance) {
-            advance = (int)rec.width;
+    resources.face_font = LoadFontEx(config.font_path, config.font_pixel_size, 0, 0);
+    if (IsFontValid(resources.face_font)) {
+        resources.owns_face_font = 1;
+        return 0;
+    }
+
+    resources.face_font = GetFontDefault();
+    if (!IsFontValid(resources.face_font)) {
+        memset(&resources, 0, sizeof(resources));
+        return 2;
+    }
+
+    return 0;
+}
+
+void render_resources_shutdown(Render_Resources& resources) {
+    if (resources.owns_face_font && IsFontValid(resources.face_font)) {
+        UnloadFont(resources.face_font);
+    }
+
+    memset(&resources, 0, sizeof(resources));
+}
+
+void draw_cube_immediate(const Cube_Draw& draw) {
+    if (draw.edge_length <= 0.0f) {
+        return;
+    }
+
+    Vector3 cube_size = {draw.edge_length, draw.edge_length, draw.edge_length};
+    if (draw.fill_color.a == 255u) {
+        DrawCubeV(draw.center, cube_size, draw.fill_color);
+    }
+    if (draw.edge_color.a != 0u) {
+        DrawCubeWiresV(draw.center, cube_size, draw.edge_color);
+    }
+}
+
+void draw_cube_faces_immediate(const Cube_Face_Draw* draws, uint32_t count) {
+    if (draws == 0 || count == 0u) {
+        return;
+    }
+
+    rlSetTexture(0);
+    rlBegin(RL_QUADS);
+    for (uint32_t index = 0u; index < count; ++index) {
+        const Cube_Face_Draw& draw = draws[index];
+        if (draw.edge_length <= 0.0f || draw.direction == FACE_DIRECTION_NONE ||
+            draw.direction >= FACE_DIRECTION_COUNT) {
+            continue;
+        }
+        if (draw.fill_color.a == 255u) {
+            emit_opaque_face(draw);
+        }
+    }
+    rlEnd();
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+    rlBegin(RL_TRIANGLES);
+    for (uint32_t index = 0u; index < count; ++index) {
+        const Cube_Face_Draw& draw = draws[index];
+        if (draw.edge_length <= 0.0f || draw.direction == FACE_DIRECTION_NONE ||
+            draw.direction >= FACE_DIRECTION_COUNT) {
+            continue;
+        }
+        if (draw.fill_color.a > 0u && draw.fill_color.a < 255u) {
+            emit_transparent_face(draw);
+        }
+    }
+    rlEnd();
+    rlEnableDepthMask();
+    EndBlendMode();
+
+    rlBegin(RL_LINES);
+    for (uint32_t index = 0u; index < count; ++index) {
+        const Cube_Face_Draw& draw = draws[index];
+        if (draw.edge_length <= 0.0f || draw.direction == FACE_DIRECTION_NONE ||
+            draw.direction >= FACE_DIRECTION_COUNT) {
+            continue;
+        }
+        if (draw.edge_mask == 0u || draw.edge_color.a == 0u) {
+            continue;
         }
 
-        x += (float)advance*scale + spacing_world;
-    }
-    if (x > 0.0f) {
-        return x - spacing_world;
-    }
+        Vector3 bottom_left;
+        Vector3 bottom_right;
+        Vector3 top_right;
+        Vector3 top_left;
+        cube_face_vertices(draw.center, draw.edge_length, draw.direction, bottom_left, bottom_right,
+                           top_right, top_left);
 
-    return 0.0f;
-}
-
-void draw_box_faces(Vector3 mn, Vector3 mx, unsigned int face_mask, Color color)
-{
-    Vector3 p000 = {mn.x, mn.y, mn.z};
-    Vector3 p001 = {mn.x, mn.y, mx.z};
-    Vector3 p010 = {mn.x, mx.y, mn.z};
-    Vector3 p011 = {mn.x, mx.y, mx.z};
-    Vector3 p100 = {mx.x, mn.y, mn.z};
-    Vector3 p101 = {mx.x, mn.y, mx.z};
-    Vector3 p110 = {mx.x, mx.y, mn.z};
-    Vector3 p111 = {mx.x, mx.y, mx.z};
-
-    rlBegin(RL_QUADS);
-    if (face_mask & FACE_NEG_X) {
-        emit_quad(p000, p001, p011, p010, color);
-    }
-    if (face_mask & FACE_POS_X) {
-        emit_quad(p100, p110, p111, p101, color);
-    }
-    if (face_mask & FACE_NEG_Y) {
-        emit_quad(p000, p100, p101, p001, color);
-    }
-    if (face_mask & FACE_POS_Y) {
-        emit_quad(p010, p011, p111, p110, color);
-    }
-    if (face_mask & FACE_NEG_Z) {
-        emit_quad(p000, p010, p110, p100, color);
-    }
-    if (face_mask & FACE_POS_Z) {
-        emit_quad(p001, p101, p111, p011, color);
+        if (draw.edge_mask & FACE_EDGE_TOP) {
+            emit_line(top_left, top_right, draw.edge_color);
+        }
+        if (draw.edge_mask & FACE_EDGE_RIGHT) {
+            emit_line(bottom_right, top_right, draw.edge_color);
+        }
+        if (draw.edge_mask & FACE_EDGE_BOTTOM) {
+            emit_line(bottom_left, bottom_right, draw.edge_color);
+        }
+        if (draw.edge_mask & FACE_EDGE_LEFT) {
+            emit_line(bottom_left, top_left, draw.edge_color);
+        }
     }
     rlEnd();
 }
 
-void draw_box_edges(Vector3 mn, Vector3 mx, Color c)
-{
-    Vector3 p000 = {mn.x, mn.y, mn.z};
-    Vector3 p001 = {mn.x, mn.y, mx.z};
-    Vector3 p010 = {mn.x, mx.y, mn.z};
-    Vector3 p011 = {mn.x, mx.y, mx.z};
-    Vector3 p100 = {mx.x, mn.y, mn.z};
-    Vector3 p101 = {mx.x, mn.y, mx.z};
-    Vector3 p110 = {mx.x, mx.y, mn.z};
-    Vector3 p111 = {mx.x, mx.y, mx.z};
+static float glyph_advance(const Font& font, int glyph_index) {
+    int advance = font.glyphs[glyph_index].advanceX;
+    if (advance == 0) {
+        advance = (int)font.recs[glyph_index].width;
+    }
 
-    DrawLine3D(p000, p001, c);
-    DrawLine3D(p001, p011, c);
-    DrawLine3D(p011, p010, c);
-    DrawLine3D(p010, p000, c);
-    DrawLine3D(p100, p101, c);
-    DrawLine3D(p101, p111, c);
-    DrawLine3D(p111, p110, c);
-    DrawLine3D(p110, p100, c);
-    DrawLine3D(p000, p100, c);
-    DrawLine3D(p001, p101, c);
-    DrawLine3D(p010, p110, c);
-    DrawLine3D(p011, p111, c);
+    return (float)advance;
 }
 
-void draw_text_lines_3d(Font font, const char** lines, int line_count, Vector3 center, Vector3 right, Vector3 up, const Text3D_Style& s, float line_step_world)
-{
-    if (!lines || line_count <= 0 || font.texture.id == 0 || font.baseSize == 0) {
+float measure_plane_text_width(const Render_Resources& resources, const char* text, float font_size,
+                               float glyph_spacing) {
+    const Font& font = resources.face_font;
+    if (text == 0 || font_size <= 0.0f || !IsFontValid(font)) {
+        return 0.0f;
+    }
+
+    float scale = font_size / (float)font.baseSize;
+    float width = 0.0f;
+    const unsigned char* cursor = (const unsigned char*)text;
+    while (*cursor != 0u) {
+        int glyph_index = GetGlyphIndex(font, *cursor);
+        width += glyph_advance(font, glyph_index) * scale;
+        if (cursor[1] != 0u) {
+            width += glyph_spacing;
+        }
+        ++cursor;
+    }
+
+    return width;
+}
+
+static void emit_plane_text_line(const Font& font, const char* text, Vector3 center, Vector3 right,
+                                 Vector3 down, float font_size, float glyph_spacing,
+                                 float measured_width, Color color) {
+    if (text == 0) {
         return;
     }
 
-    float scale = s.font_size_world/(float)font.baseSize;
-    float max_width = 0.0f;
-    if (line_step_world <= 0.0f) {
-        line_step_world = s.font_size_world*1.25f;
-    }
+    float scale = font_size / (float)font.baseSize;
+    Vector3 origin = Vector3Subtract(center, Vector3Scale(right, 0.5f * measured_width));
+    origin = Vector3Subtract(origin, Vector3Scale(down, 0.5f * font_size));
+    Vector3 normal = Vector3CrossProduct(down, right);
+    float pen_x = 0.0f;
+    const unsigned char* cursor = (const unsigned char*)text;
+    while (*cursor != 0u) {
+        int glyph_index = GetGlyphIndex(font, *cursor);
+        const GlyphInfo& glyph = font.glyphs[glyph_index];
+        const Rectangle& glyph_rectangle = font.recs[glyph_index];
 
-    for (int i = 0; i < line_count; ++i) {
-        float w = text_width_world(font, lines[i], scale, s.spacing_world);
-        if (w > max_width) {
-            max_width = w;
+        if (*cursor != ' ') {
+            float glyph_x = pen_x + (float)(glyph.offsetX - font.glyphPadding) * scale;
+            float glyph_y = (float)(glyph.offsetY - font.glyphPadding) * scale;
+            float glyph_width = (glyph_rectangle.width + 2.0f * (float)font.glyphPadding) * scale;
+            float glyph_height = (glyph_rectangle.height + 2.0f * (float)font.glyphPadding) * scale;
+            Vector3 top_left = Vector3Add(origin, Vector3Scale(right, glyph_x));
+            top_left = Vector3Add(top_left, Vector3Scale(down, glyph_y));
+            Vector3 bottom_left = Vector3Add(top_left, Vector3Scale(down, glyph_height));
+            Vector3 bottom_right = Vector3Add(bottom_left, Vector3Scale(right, glyph_width));
+            Vector3 top_right = Vector3Add(top_left, Vector3Scale(right, glyph_width));
+            float texture_x0 =
+                (glyph_rectangle.x - (float)font.glyphPadding) / (float)font.texture.width;
+            float texture_y0 =
+                (glyph_rectangle.y - (float)font.glyphPadding) / (float)font.texture.height;
+            float texture_x1 =
+                (glyph_rectangle.x + glyph_rectangle.width + (float)font.glyphPadding) /
+                (float)font.texture.width;
+            float texture_y1 =
+                (glyph_rectangle.y + glyph_rectangle.height + (float)font.glyphPadding) /
+                (float)font.texture.height;
+
+            rlColor4ub(color.r, color.g, color.b, color.a);
+            rlNormal3f(normal.x, normal.y, normal.z);
+            rlTexCoord2f(texture_x0, texture_y0);
+            rlVertex3f(top_left.x, top_left.y, top_left.z);
+            rlTexCoord2f(texture_x0, texture_y1);
+            rlVertex3f(bottom_left.x, bottom_left.y, bottom_left.z);
+            rlTexCoord2f(texture_x1, texture_y1);
+            rlVertex3f(bottom_right.x, bottom_right.y, bottom_right.z);
+            rlTexCoord2f(texture_x1, texture_y0);
+            rlVertex3f(top_right.x, top_right.y, top_right.z);
         }
+
+        pen_x += glyph_advance(font, glyph_index) * scale + glyph_spacing;
+        ++cursor;
+    }
+}
+
+void draw_plane_text_block_immediate(const Render_Resources& resources,
+                                     const Plane_Text_Block_Draw& draw) {
+    const Font& font = resources.face_font;
+    if (draw.lines == 0 || draw.line_count == 0u || draw.font_size <= 0.0f || !IsFontValid(font)) {
+        return;
     }
 
-    if (s.draw_background) {
-        float block_height = s.font_size_world + line_step_world*(float)(line_count - 1);
-        Vector3 origin = v3_add(v3_sub(center, v3_mul(right, max_width*0.5f)), v3_mul(up, block_height*0.5f));
-        Vector3 a = v3_add(v3_sub(origin, v3_mul(right, s.spacing_world)), v3_mul(up, s.spacing_world));
-        Vector3 b = v3_add(a, v3_mul(right, max_width + s.spacing_world*2.0f));
-        Vector3 c = v3_sub(b, v3_mul(up, block_height + s.spacing_world*2.0f));
-        Vector3 d = v3_sub(a, v3_mul(up, block_height + s.spacing_world*2.0f));
-        rlSetTexture(0);
-        rlBegin(RL_QUADS);
-        emit_quad(a, d, c, b, s.background_color);
-        rlEnd();
+    float total_height = (float)draw.line_count * draw.font_size;
+    if (draw.line_count > 1u) {
+        total_height += (float)(draw.line_count - 1u) * draw.line_spacing;
     }
 
     rlSetTexture(font.texture.id);
     rlBegin(RL_QUADS);
-
-    for (int line = 0; line < line_count; ++line) {
-        const char* text = lines[line];
-        if (!text || !text[0]) {
+    for (uint32_t line_index = 0u; line_index < draw.line_count; ++line_index) {
+        const char* text = draw.lines[line_index];
+        if (text == 0 || text[0] == '\0') {
             continue;
         }
 
-        float w = text_width_world(font, text, scale, s.spacing_world);
-        float yoff = ((float)(line_count - 1)*0.5f - (float)line)*line_step_world;
-        Vector3 line_center = v3_add(center, v3_mul(up, yoff));
-        Vector3 origin = v3_add(v3_sub(line_center, v3_mul(right, w*0.5f)), v3_mul(up, s.font_size_world*0.5f));
-
-        float x = 0.0f;
-        for (const char* at = text; *at; ++at) {
-            int codepoint = (unsigned char)*at;
-            int gi = GetGlyphIndex(font, codepoint);
-            Rectangle rec = font.recs[gi];
-            GlyphInfo g = font.glyphs[gi];
-            float gx = x + (float)g.offsetX*scale;
-            float gy = (float)g.offsetY*scale;
-            float gw = rec.width*scale;
-            float gh = rec.height*scale;
-            Vector3 p0 = text_point(origin, right, up, gx,    gy);
-            Vector3 p1 = text_point(origin, right, up, gx+gw, gy);
-            Vector3 p2 = text_point(origin, right, up, gx+gw, gy+gh);
-            Vector3 p3 = text_point(origin, right, up, gx,    gy+gh);
-            float tx0 = rec.x/(float)font.texture.width, ty0 = rec.y/(float)font.texture.height;
-            float tx1 = (rec.x + rec.width)/(float)font.texture.width, ty1 = (rec.y + rec.height)/(float)font.texture.height;
-            rlColor4ub(s.text_color.r, s.text_color.g, s.text_color.b, s.text_color.a);
-            rlNormal3f(0.0f, 0.0f, 1.0f);
-            rlTexCoord2f(tx0, ty0);
-            rl_vertex(p0);
-            rlTexCoord2f(tx0, ty1);
-            rl_vertex(p3);
-            rlTexCoord2f(tx1, ty1);
-            rl_vertex(p2);
-            rlTexCoord2f(tx1, ty0);
-            rl_vertex(p1);
-            int advance = g.advanceX;
-            if (!advance) {
-                advance = (int)rec.width;
-            }
-
-            x += (float)advance*scale + s.spacing_world;
+        float measured_width = 0.0f;
+        if (draw.measured_widths != 0) {
+            measured_width = draw.measured_widths[line_index];
         }
-    }
+        if (measured_width <= 0.0f) {
+            measured_width =
+                measure_plane_text_width(resources, text, draw.font_size, draw.glyph_spacing);
+        }
 
+        float line_offset = -0.5f * total_height + 0.5f * draw.font_size;
+        line_offset += (float)line_index * (draw.font_size + draw.line_spacing);
+        Vector3 line_center = Vector3Add(draw.center, Vector3Scale(draw.down, line_offset));
+        emit_plane_text_line(font, text, line_center, draw.right, draw.down, draw.font_size,
+                             draw.glyph_spacing, measured_width, draw.color);
+    }
     rlEnd();
     rlSetTexture(0);
 }
 
-void draw_billboard_text_3d(Camera3D camera, Font font, const char* text, Vector3 center, const Text3D_Style& style)
-{
-    Vector3 forward = v3_norm(v3_sub(camera.position, center));
-    Vector3 right = v3_norm(v3_cross(camera.up, forward));
-    Vector3 up = v3_norm(v3_cross(forward, right));
-    const char* lines[1] = { text };
-    draw_text_lines_3d(font, lines, 1, center, right, up, style, style.font_size_world);
+void draw_plane_text_immediate(const Render_Resources& resources, const Plane_Text_Draw& draw) {
+    const char* lines[1] = {draw.text};
+    float measured_widths[1] = {draw.measured_width};
+    Plane_Text_Block_Draw block_draw = {};
+    block_draw.lines = lines;
+    block_draw.measured_widths = measured_widths;
+    block_draw.line_count = 1u;
+    block_draw.center = draw.center;
+    block_draw.right = draw.right;
+    block_draw.down = draw.down;
+    block_draw.font_size = draw.font_size;
+    block_draw.glyph_spacing = draw.glyph_spacing;
+    block_draw.color = draw.color;
+    draw_plane_text_block_immediate(resources, block_draw);
 }
 
-void draw_arrow_with_gap(Vector3 origin, Vector3 dir, float start_offset, float length, float gap, float radius, Color color)
-{
-    Vector3 n = v3_norm(dir);
-    float tip = length;
-    float head = length*0.18f;
-    float half_gap = gap*0.5f;
-    Vector3 a0 = v3_add(origin, v3_mul(n, start_offset));
-    Vector3 a1 = v3_add(origin, v3_mul(n, length*0.5f - half_gap));
-    Vector3 b0 = v3_add(origin, v3_mul(n, length*0.5f + half_gap));
-    Vector3 b1 = v3_add(origin, v3_mul(n, tip - head));
-    Vector3 t0 = b1;
-    Vector3 t1 = v3_add(origin, v3_mul(n, tip));
-    if (length*0.5f - half_gap - start_offset > 0.01f) {
-        DrawCylinderEx(a0, a1, radius, radius, 10, color);
+void draw_billboard_text_immediate(const Render_Resources& resources, const Camera3D& camera,
+                                   const Billboard_Text_Draw& draw) {
+    Vector3 camera_forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+    Vector3 camera_right = Vector3Normalize(Vector3CrossProduct(camera_forward, camera.up));
+    Vector3 camera_view_up = Vector3Normalize(Vector3CrossProduct(camera_right, camera_forward));
+
+    Plane_Text_Draw plane_draw = {};
+    plane_draw.text = draw.text;
+    plane_draw.center = draw.center;
+    plane_draw.right = camera_right;
+    plane_draw.down = Vector3Negate(camera_view_up);
+    plane_draw.font_size = draw.font_size;
+    plane_draw.glyph_spacing = draw.glyph_spacing;
+    plane_draw.color = draw.color;
+    draw_plane_text_immediate(resources, plane_draw);
+}
+
+void draw_arrow_immediate(const Arrow_Draw& draw) {
+    if (draw.length <= 0.0f || draw.arrowhead_length < 0.0f ||
+        draw.arrowhead_length > draw.length) {
+        return;
     }
-    if (tip - head - (length*0.5f + half_gap) > 0.01f) {
-        DrawCylinderEx(b0, b1, radius, radius, 10, color);
+    if (Vector3LengthSqr(draw.direction) < 0.000001f) {
+        return;
     }
 
-    DrawCylinderEx(t0, t1, radius*3.0f, 0.0f, 16, color);
+    Vector3 direction = Vector3Normalize(draw.direction);
+    float shaft_length = draw.length - draw.arrowhead_length;
+    float gap_half_length = clamp_float(draw.gap_half_length, 0.0f, 0.5f * shaft_length);
+    float gap_start_distance = clamp_float(draw.gap_center - gap_half_length, 0.0f, shaft_length);
+    float gap_end_distance = clamp_float(draw.gap_center + gap_half_length, 0.0f, shaft_length);
+    Vector3 shaft_end = Vector3Add(draw.origin, Vector3Scale(direction, shaft_length));
+    Vector3 arrow_tip = Vector3Add(draw.origin, Vector3Scale(direction, draw.length));
+
+    if (gap_start_distance > 0.0f) {
+        Vector3 gap_start = Vector3Add(draw.origin, Vector3Scale(direction, gap_start_distance));
+        DrawCylinderEx(draw.origin, gap_start, draw.shaft_radius, draw.shaft_radius, 8, draw.color);
+    }
+    if (gap_end_distance < shaft_length) {
+        Vector3 gap_end = Vector3Add(draw.origin, Vector3Scale(direction, gap_end_distance));
+        DrawCylinderEx(gap_end, shaft_end, draw.shaft_radius, draw.shaft_radius, 8, draw.color);
+    }
+
+    DrawCylinderEx(shaft_end, arrow_tip, draw.arrowhead_radius, 0.0f, 8, draw.color);
 }
 
-}
+} // namespace sdk

@@ -4,40 +4,40 @@
 
 namespace sdk {
 
-int runtime_init(Runtime_State& runtime, const Runtime_Config& requested)
-{
-    Runtime_Config c = requested;
-    if (c.screen_width <= 0) {
-        c.screen_width = 1920;
+int runtime_init(Runtime_State& runtime, const Runtime_Config& requested_config) {
+    runtime = Runtime_State{};
+    Runtime_Config config = requested_config;
+    if (config.screen_width <= 0) {
+        config.screen_width = 1920;
     }
-    if (c.screen_height <= 0) {
-        c.screen_height = 1080;
+    if (config.screen_height <= 0) {
+        config.screen_height = 1080;
     }
-    if (c.target_fps <= 0) {
-        c.target_fps = 60;
+    if (config.target_fps <= 0) {
+        config.target_fps = 60;
     }
-    if (!c.title || !c.title[0]) {
-        c.title = "software renderer";
+    if (!config.title || !config.title[0]) {
+        config.title = "software renderer";
     }
 
-    InitWindow(c.screen_width, c.screen_height, c.title);
+    InitWindow(config.screen_width, config.screen_height, config.title);
     if (!IsWindowReady()) {
         return 1;
     }
 
-    SetTargetFPS(c.target_fps);
+    SetTargetFPS(config.target_fps);
     SetExitKey(KEY_ESCAPE);
-    runtime.config = c;
+    runtime.config = config;
     runtime.initialized = 1;
     return 0;
 }
 
-void runtime_shutdown(Runtime_State& runtime)
-{
-    if (runtime.initialized) {
+void runtime_shutdown(Runtime_State& runtime) {
+    if (runtime.initialized && IsWindowReady()) {
         CloseWindow();
     }
-    runtime.initialized = 0;
+
+    runtime = Runtime_State{};
 }
 
-}
+} // namespace sdk

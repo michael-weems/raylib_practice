@@ -48,7 +48,7 @@ static Handle get_handle(Coord coords, Dim widths) {
 // handle to grid-coordinates
 static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
    if (handle.id == 0) return false;
-   if (handle.id > max_handle(widths)) return false;
+   if (handle.id > max_handle(widths).id) return false;
 
    int index{ static_cast<int>(handle.id) - 1 };
    out.z = (index / (widths.x * widths.y));
@@ -192,7 +192,7 @@ int main() {
          if (is_selected_valid) {
             DrawText(TextFormat("CUBE: handle = %u | x = %i  y = %i  z = %i", handle.id, c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
          } else { 
-            DrawText("CUBE: handle = FAIL");
+            DrawText("CUBE: handle = FAIL", x_offset, y_offset, font_size, RAYWHITE);
          }
 
          y_offset += font_size;

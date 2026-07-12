@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.24)
 
 project(software_renderer LANGUAGES C CXX)
 
@@ -21,6 +21,15 @@ set(PLATFORM "RGFW" CACHE STRING "" FORCE)
 set(OPENGL_VERSION "Software" CACHE STRING "" FORCE)
 
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/vendor/raylib" "${CMAKE_CURRENT_BINARY_DIR}/raylib")
+if(WIN32)
+  target_compile_definitions(raylib PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+  target_compile_options(raylib PRIVATE
+    -Wno-initializer-overrides
+    -Wno-static-in-inline
+  )
+endif()
 
 # TODO: Re-test RLSW_USE_SIMD_INTRINSICS after the vendored MSVC SSE2 path
 # fixes its _mm_loadu_si32 initialization error in external/rlsw.h.
@@ -36,6 +45,9 @@ target_include_directories(software_renderer PRIVATE "${CMAKE_CURRENT_LIST_DIR}/
 target_link_libraries(software_renderer PRIVATE raylib)
 if(MSVC)
   target_compile_options(software_renderer PRIVATE /W4)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(software_renderer PRIVATE -Wno-missing-field-initializers)
+  endif()
 endif()
 
 #[[
@@ -52,10 +64,9 @@ add_test(NAME software_renderer_core COMMAND software_renderer_tests)
 
 ]]
 
-add_custom_command(
-  TARGET software_renderer
-  POST_BUILD
+add_custom_target(software_renderer_assets
   COMMAND "${CMAKE_COMMAND}" -E copy_directory
           "${CMAKE_CURRENT_LIST_DIR}/assets"
           "$<TARGET_FILE_DIR:software_renderer>/assets"
 )
+add_dependencies(software_renderer software_renderer_assets)

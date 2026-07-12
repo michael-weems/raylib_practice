@@ -60,12 +60,12 @@ Write-SectionLines -Title 'Untracked' -Lines $untracked
 if ($Stat) {
     Write-Host ''
     Write-Host '== Diff stat =='
-    & git diff --stat
+    & git -c core.excludesfile= diff --stat
     if ($LASTEXITCODE -ne 0) {
         throw "git diff --stat failed with exit code $LASTEXITCODE"
     }
 
-    & git diff --cached --stat
+    & git -c core.excludesfile= diff --cached --stat
     if ($LASTEXITCODE -ne 0) {
         throw "git diff --cached --stat failed with exit code $LASTEXITCODE"
     }
@@ -88,11 +88,17 @@ if ($allChanged | Where-Object { $_ -like 'reference/*' }) {
 if ($allChanged | Where-Object { $_ -like 'tools/*' -or $_ -like '*CMakeLists.txt' }) {
     $checks.Add('powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-builds.ps1')
 }
-if ($allChanged | Where-Object { $_ -like '*.cpp' -or $_ -like '*.h' -or $_ -like '*.c' }) {
-    if (Get-Command clang-format -ErrorAction SilentlyContinue) {
+if ($allChanged | Where-Object { $_ -eq 'REPORT.md' -or $_ -eq 'package.json' -or $_ -eq 'package-lock.json' -or $_ -eq 'tools/docs.mjs' }) {
+    $checks.Add('npm run docs:build')
+}
+if ($allChanged | Where-Object {
+    $_ -like '*.cpp' -or $_ -like '*.h' -or $_ -like '*.c' -or $_ -eq '.clang-format'
+}) {
+    try {
+        $null = Find-ClangFormat
         $checks.Add('powershell -NoProfile -ExecutionPolicy Bypass -File tools\format.ps1')
-    } else {
-        $checks.Add('clang-format not found on PATH; tools\format.ps1 -List can still show candidate files')
+    } catch {
+        $checks.Add('clang-format not found; tools\format.ps1 -List can still show candidate files')
     }
 }
 

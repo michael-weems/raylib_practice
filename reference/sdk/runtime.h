@@ -14,7 +14,9 @@ struct Runtime_State {
     int initialized;
 };
 
-int runtime_init(Runtime_State& runtime, const Runtime_Config& requested);
+// These lifecycle utilities complement direct Raylib frame-loop calls. The
+// application still owns WindowShouldClose, BeginDrawing, and EndDrawing.
+int runtime_init(Runtime_State& runtime, const Runtime_Config& requested_config);
 void runtime_shutdown(Runtime_State& runtime);
 
-}
+} // namespace sdk

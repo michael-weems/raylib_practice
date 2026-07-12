@@ -2,9 +2,10 @@
 
 ## Purpose
 
-This curriculum guides you through rebuilding the application preserved at Git
-tag `baseline`. It is a training route, not a transcription route. You will
-learn the project by making one small, visible capability work at a time.
+This curriculum guides you through rebuilding the application demonstrated by
+the finished project under `reference/`. It is a training route, not a
+transcription route. You will learn the project by making one small, visible
+capability work at a time.
 
 There are **50 checkpoints** in eight phases. Every checkpoint ends with an
 executable you can launch and inspect. Most checkpoints add a visible behavior;
@@ -66,7 +67,7 @@ so and we will increase the specificity of the next hint.
 
 A checkpoint is complete when all of these are true:
 
-- `./build` succeeds with no new warnings.
+- `tools\build-src.ps1` succeeds with no new blocking warnings.
 - The executable launches and displays the stated visible result.
 - Closing the window exits normally.
 - Previously completed controls still work.
@@ -77,9 +78,13 @@ A checkpoint is complete when all of these are true:
 
 At the final integration checkpoint, relevant automated tests must also pass.
 
-## Rules for using the baseline
+## Rules for using the finished reference
 
-The `baseline` tag is a reference implementation, not starter code.
+The runnable project under `reference/` is the definitive finished behavioral
+and architectural oracle. The `baseline` tag is older historical design
+evidence: it can explain why an interface once existed, but it does not override
+the current reference or the decisions recorded in this curriculum. Neither is
+starter code.
 
 Before completing a checkpoint, you may freely inspect:
 
@@ -88,19 +93,21 @@ Before completing a checkpoint, you may freely inspect:
 - official documentation linked below;
 - your own earlier commits.
 
-After your checkpoint works, you may compare structure with `baseline`. Prefer a
-summary first:
+After your checkpoint works, you may compare structure with `reference/`.
+First list its modules without opening their implementations:
 
 ```powershell
-git diff --stat baseline -- src
+rg --files reference
 ```
 
-Then narrow comparison to the module you just completed. Avoid opening the
-reference implementation of a function before attempting your own unless you
-are genuinely blocked or intentionally studying alternatives.
+Then inspect only the corresponding module. When both trees contain a matching
+file, `git diff --no-index -- <learner-path> <reference-path>` can show a direct
+comparison; a nonzero exit code is expected when the files differ. Avoid
+opening the reference implementation of a function before attempting your own
+unless you are genuinely blocked or intentionally studying alternatives.
 
-Never switch the working tree to `baseline` over uncommitted work. The tag is
-read-only and can be inspected with Git commands.
+Use `git show baseline:<path>` only when historical evidence is useful. Never
+switch the working tree to `baseline` over uncommitted work.
 
 ## Final constraints to practice from the beginning
 
@@ -398,8 +405,11 @@ only at the identity boundary.
 
 ## Checkpoint 14 — Cube values A through D
 
-**Challenge:** Define a zero value and A/B/C/D categories, then associate one
-category with each real cube.
+**Challenge:** Define byte-wide zero/A/B/C/D categories and create one simple,
+contiguous, application-owned value buffer with capacity `cube_count + 1`.
+Leave slot zero as the all-zero stub and associate one category with every real
+one-based cube handle. This is provisional storage: do not introduce the
+allocator interface or an `app` module yet.
 
 **Visible finish:** The tiny field displays four clearly different fill colors,
 and the overlay identifies the highlighted cube's value.
@@ -407,13 +417,18 @@ and the overlay identifies the highlighted cube's value.
 **Reflect after:** What changed when cubes began storing category bytes instead
 of colors? What did the zero slot simplify?
 
-**Hints:** Use a simple provisional pattern first. Keep position and identity
-implicit; only category needs per-cube storage.
+**Hints:** Create and initialize the buffer once before the frame loop. Use a
+simple repeating pattern first, index it directly by a validated handle, and
+release it explicitly at shutdown if your provisional storage requires that.
+Keep position and identity implicit; only the category byte needs per-cube
+storage. A temporary value-to-color switch is enough to make the data visible;
+do not design the palette system early.
 
 **Read:** `REPORT.md`, sections 8.2 and 8.3.
 
-**Self-check:** Invalid handles resolve to the zero value without exposing the
-backing pointer as identity.
+**Self-check:** Slot zero stays zero, every real handle maps to exactly one byte,
+and invalid handles resolve to the zero value without exposing the backing
+pointer as identity.
 
 ## Checkpoint 15 — Deterministic value generation
 
@@ -437,7 +452,9 @@ distribution.
 ## Checkpoint 16 — Palette-defined fill and edges
 
 **Challenge:** Separate semantic value from visual style and introduce three
-palettes containing adjacent fill and edge colors.
+palettes. A `Cube_Visual_Style` keeps one value's fill and edge colors adjacent.
+Palette handles are one-based, palette zero is an all-zero stub, and each
+palette contains a zero style followed by styles for A/B/C/D.
 
 **Visible finish:** Keys 1/2/3 recolor every visible cube and its wireframe
 without changing cube values. D is white at roughly 60% opacity in each palette.
@@ -445,8 +462,10 @@ without changing cube values. D is white at roughly 60% opacity in each palette.
 **Reflect after:** Why did keeping fill and edge colors adjacent help? What
 remained unchanged when the active palette changed?
 
-**Hints:** Give palette zero an all-zero style table. Resolve invalid palette or
-value handles to their stubs.
+**Hints:** Keep each palette's five styles contiguous and resolve a style from
+the active palette handle plus the immutable cube value. Invalid palette or
+value handles resolve to their zero stubs. Store semantics once in the cube
+value buffer; do not cache a second per-cube color array.
 
 **Read:** `REPORT.md`, section 8.4.
 
@@ -459,22 +478,27 @@ the value must not change.
 palettes, camera control, update behavior, and rendering all exist, identify the
 boundaries that the working code is asking for. Extract only those proven
 responsibilities into `app` modules and keep reusable Raylib policy in `sdk`.
+Add the first small nonvisual core-test executable for the pure invariants that
+the extraction makes callable without opening a window.
 
 **Visible finish:** The same colored field and controls run, while `main.cpp`
 becomes a small composition root with explicit initialization, loop, and
-shutdown.
+shutdown. The core tests run independently and report success.
 
 **Reflect after:** Which extraction removed real duplication or ownership
 confusion? Which possible abstraction still lacked enough evidence to create?
 
 **Hints:** Move cohesive working code rather than redesigning it. Preserve data
 layout and call order first; improve names and interfaces only after behavior is
-unchanged.
+unchanged. Start tests with odd/even centering, first/last/invalid handle round
+trips, zero value/palette stubs, and deterministic generation. Do not test
+Raylib window behavior here.
 
 **Read:** `REPORT.md`, sections 6 and 16, after the first extraction attempt.
 
 **Self-check:** Compare the pre-refactor and post-refactor executable behavior,
-then force one startup failure and confirm shutdown remains safe.
+run the core tests through CTest, then force one startup failure and confirm
+shutdown remains safe.
 
 ### Phase 3 gate
 
@@ -528,18 +552,22 @@ unsigned subtraction underflow?
 **Challenge:** Turn the local box into a radius-five sphere in grid space.
 
 **Visible finish:** Box corners disappear, leaving a rounded lattice volume of
-roughly 515 cubes away from boundaries.
+roughly 515 cubes away from boundaries. The overlay reports both coordinates
+tested in the clamped candidate box and cubes accepted for submission.
 
 **Reflect after:** Why compare squared distance instead of taking a square root?
 Which differences need signed or wider types?
 
 **Hints:** Keep the clamped box as the enumeration bound; add a cheap acceptance
-test inside it.
+test inside it. Treat the two counters as evidence about algorithmic work, not
+as a renderer abstraction. If you report frame timing or FPS as a performance
+result, use `tools\build-performance.ps1 -App src -BuildType RelWithDebInfo`;
+Debug numbers are only interaction checks.
 
 **Read:** `REPORT.md`, sections 12.2 and 13.
 
-**Self-check:** Overlay the submitted cube count and predict how boundaries
-change it.
+**Self-check:** Predict candidate and submitted counts at the field center and
+near a corner, then compare the overlay with those predictions.
 
 ## Checkpoint 21 — One semantic input snapshot
 
@@ -706,18 +734,21 @@ the intended face.
 cubes within radius three of the selection.
 
 **Visible finish:** Nearby front-facing cube faces show three compact text lines;
-distant local cubes and back-facing faces do not.
+distant local cubes and back-facing faces do not. Diagnostics report visible
+labeled faces and glyphs submitted for the frame.
 
 **Reflect after:** Which text widths repeat and can be measured once? How does a
 face normal dot camera direction identify a back face?
 
 **Hints:** Submit fills before text. Keep the dynamic handle formatting local to
-the draw loop without allocating strings on the heap.
+the draw loop without allocating strings on the heap. Measure a
+`RelWithDebInfo` local-view frame with text enabled and disabled so you can
+separate text cost from cube geometry cost.
 
 **Read:** `REPORT.md`, sections 12.2 and 12.6.
 
-**Self-check:** Overlay the number of labeled faces and verify it drops when
-looking from another side.
+**Self-check:** Verify labeled-face and glyph counts drop when looking from
+another side; record the optimized-build timing difference with text disabled.
 
 ## Checkpoint 30 — One compass arrow primitive
 
@@ -992,18 +1023,22 @@ keep the fix in project-owned SDK rendering code.
 depth, sort far-to-near, and submit after opaque fills with depth writes off.
 
 **Visible finish:** Overlapping transparent cubes blend consistently while
-opaque cubes still occlude them correctly.
+opaque cubes still occlude them correctly. Diagnostics report opaque faces,
+transparent faces, sort work, frame-arena bytes used, and arena high-water use.
 
 **Reflect after:** Why is the command array still immediate-mode? Why sort faces
 rather than cube centers? Why retain depth testing but disable depth writes?
 
 **Hints:** Use an in-place algorithm over the arena array; no STL container or
-second command buffer is needed.
+second command buffer is needed. Measure the transparent pass in
+`RelWithDebInfo`, and distinguish command collection/sorting cost from
+rasterization cost before changing either algorithm.
 
 **Read:** [R10], [R11], [R12], and `REPORT.md`, section 12.4.
 
 **Self-check:** Render a controlled near/far pair whose expected color layering
-you can explain.
+you can explain, then verify the reported arena use stays within the queried
+startup requirement at the maximum focused workload.
 
 ### Phase 7 gate
 
@@ -1134,8 +1169,9 @@ while stationary.
 ## Checkpoint 50 — Field-scale compass and final integration
 
 **Challenge:** Add the large birds-eye compass, switch to the final
-`500 × 1000 × 100` field, validate performance, and add nonvisual regression
-tests for the core invariants accumulated throughout the curriculum.
+`500 × 1000 × 100` field, validate performance in a clean `RelWithDebInfo`
+build, and complete the nonvisual regression suite for the core invariants
+accumulated throughout the curriculum.
 
 **Visible finish:** The complete application matches the reference behavior:
 focused and birds-eye views, navigation, picking, palettes, transparency, text,
@@ -1145,20 +1181,25 @@ compasses, boundary grids, and 30+ FPS software rendering.
 camera distance, or screen resolution? Which mathematical rules deserve tests?
 Where is the actual frame time spent?
 
-**Hints:** Add tests for zero state, arena alignment/exhaustion/reset, handle
-round trips, stub resolution, sampling endpoints, region clipping, scratch
-requirements, and steep-pitch navigation. Profile before changing algorithms.
+**Hints:** Extend the tests introduced at Checkpoint 17 with arena
+alignment/exhaustion/reset/high-water behavior, sampling endpoints, region
+clipping, scratch requirements, draw/pick source identity, and steep-pitch
+navigation. Profile before changing algorithms. Report focused and birds-eye
+frame times alongside candidate, submitted, face, glyph, transparent-command,
+and arena counters so a result can be reproduced.
 
 **Read:** `REPORT.md`, sections 13–20, [R9], and [R14].
 
-**Self-check:** Run all controls, CTest, a clean build, `git diff --check`, and a
-vendor diff. Compare your module interfaces and behavior with `baseline`, then
-write down where your design intentionally differs.
+**Self-check:** Run all controls, CTest, a clean optimized build,
+`tools\verify-repo.ps1 -CleanFirst -RunFormatCheck`, and the isolated performance
+build. Verify 30+ FPS in both modes, record the machine/build/backend and
+counters used for the claim, compare interfaces and behavior with `reference/`,
+then write down where your design intentionally differs.
 
 ### Final gate
 
 You are finished when you can rebuild the architecture from your own reasoning,
-not when your source is textually identical to `baseline`.
+not when your source is textually identical to `reference/`.
 
 Prepare a short retrospective answering:
 
@@ -1181,7 +1222,8 @@ Prepare a short retrospective answering:
 - `vendor/raylib/src/raymath.h` — exact vector/matrix helpers.
 - `vendor/raylib/examples/` — examples matching the installed vendor version.
 - `vendor/raylib/src/external/rlsw.h` — software backend, for diagnosis only.
-- Git tag `baseline` — completed reference implementation.
+- `reference/` — definitive finished implementation for post-attempt study.
+- Git tag `baseline` — historical design evidence only.
 
 ## Official external resources
 
@@ -1264,15 +1306,18 @@ on offsets.
 **[R14] Git diff documentation**  
 <https://git-scm.com/docs/git-diff>
 
-Use path-limited comparisons so `baseline` supports reflection without
-overwhelming the current checkpoint.
+Use path-limited comparisons so `reference/` supports reflection without
+overwhelming the current checkpoint. Use `git show` only when older `baseline`
+history answers a specific design question.
 
 ---
 
 # Progress ledger
 
-Update the status column as you work. Use `not started`, `working`, `review`, or
-`complete`.
+This ledger is the authoritative progress record. Update it only after review,
+using `not started`, `working`, `review`, or `complete`. `CURRENT_STEP.md`
+contains the detailed brief for the first incomplete checkpoint; `CONTEXT.md`
+links here instead of duplicating checkpoint history.
 
 | Checkpoint | Short name | Status | Commit | Notes |
 |---:|---|---|---|---|
@@ -1288,7 +1333,7 @@ Update the status column as you work. Use `not started`, `working`, `review`, or
 | 10 | Orbit SDK | complete | | Build/review passed; reusable orbit policy integrated with raw app input. |
 | 11 | Tiny field | complete | | Build/review passed; field renders from explicit nested loops without storing positions. |
 | 12 | Implicit centering | complete | | Build/review passed; arbitrary even/odd dimensions stay centered around world origin. |
-| 13 | Cube handles | not started | | |
+| 13 | Cube handles | complete | | Build/review passed; one-based X-contiguous handles round-trip through grid coordinates with zero reserved. |
 | 14 | Cube values | not started | | |
 | 15 | Deterministic generation | not started | | |
 | 16 | Palettes and edges | not started | | |
@@ -1327,14 +1372,9 @@ Update the status column as you work. Use `not started`, `working`, `review`, or
 | 49 | Outward faces/edges | not started | | |
 | 50 | Final integration | not started | | |
 
-## Starting prompt for Checkpoint 1
+## Resuming the curriculum
 
-When you are ready, tell me:
-
-> I am starting Checkpoint 1. Give me the concrete runnable target, constraints,
-> useful hints, and relevant references. I will start coding immediately and ask
-> questions as I encounter them; review and reflection come afterward.
-
-I will coach that checkpoint only. We will move to Checkpoint 2 after you can
-build, launch, review, reflect on, and commit the first software-rendered
-window.
+Open `CURRENT_STEP.md` for the active build brief. Implement that checkpoint in
+the learner project under `src/`, ask for graduated hints when blocked, and
+submit the running result for review. The coach updates this ledger only after
+the checkpoint passes.
