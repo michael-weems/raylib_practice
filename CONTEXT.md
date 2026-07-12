@@ -31,7 +31,7 @@ tests for coach-side verification.
 - `CURRICULUM.md` contains the durable 50-checkpoint route. Its progress ledger
   is the single authoritative record of completed work.
 - `CURRENT_STEP.md` contains only the detailed brief for the active checkpoint.
-- Checkpoints 1 through 13 are complete; Checkpoint 14 is active.
+- Checkpoints 1 through 14 are complete; Checkpoint 15 is active.
 - `3D_SPACE_CURRICULUM.md` is an independent 12-week mathematics practice track
   and does not change main-curriculum progress.
 

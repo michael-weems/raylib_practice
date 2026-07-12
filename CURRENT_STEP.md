@@ -2,114 +2,113 @@
 
 ## Resume here
 
-Checkpoints 1 through 13 are complete. Checkpoint 14 is **Cube values A through
-D**.
+Checkpoints 1 through 14 are complete. Checkpoint 15 is **Deterministic value
+generation**.
 
-You already have an implicit cube field: coordinates derive world positions,
-and one-based handles provide stable identities. This checkpoint adds the first
-piece of information that genuinely differs per cube—one semantic category
-byte—while leaving position and color derived.
+You now have one immutable byte per cube and a direct relationship between a
+one-based handle and its semantic A/B/C/D value. The provisional repeating
+pattern proved that layout. This checkpoint changes only how those startup
+values are generated.
 
-Build this directly in the current application. Do not create an `app` module
-or allocator abstraction yet.
+Build this directly in the current application. Do not add palettes, allocator
+interfaces, random-number libraries, or new modules yet.
 
-## New concept: semantic data in a contiguous buffer
+## New concept: coordinate hashing
 
-A cube value answers **what category is this cube?** It does not answer how the
-cube should look. A later palette checkpoint will translate A/B/C/D into fill
-and edge colors. Keeping those concerns separate lets the same immutable field
-be visualized with many palettes.
-
-The value storage should mirror the handle rule:
+A deterministic hash converts a coordinate into a well-mixed integer:
 
 ```text
-handle:   0  1  2  3  ...  cube_count
-value:    0  A  D  B  ...  C
-           ^
-           harmless all-zero stub
+(x, y, z) -> coordinate mixing -> avalanche -> uint32 result -> A/B/C/D
 ```
 
-This is a single contiguous byte buffer with `cube_count + 1` entries. Slot
-zero is reserved; real handles index their values directly. Since X is already
-the innermost field-loop axis, consecutive X coordinates produce consecutive
-handles and therefore consecutive value loads.
+It must satisfy two properties:
 
-At this scale the important lesson is the layout and identity relationship,
-not the allocation policy. Use the simplest application-owned storage that
-fits the current field and initialize it once before entering the frame loop.
+1. The same coordinate always produces the same result, including after an
+   application restart.
+2. Nearby or regularly spaced coordinates should not produce an obvious visual
+   stripe, plane, or repeating block.
+
+Your current handle-modulo pattern is deterministic, but it is strongly related
+to storage order. X changes fastest, handles increase sequentially, and modulo
+four repeats along that same sequence. A hash should deliberately destroy that
+visible relationship while keeping generation reproducible.
+
+An **avalanche** means that changing even one input bit affects many output
+bits. Integer overflow in unsigned 32-bit arithmetic is useful here and is
+defined behavior: multiplication and addition wrap modulo `2^32`.
 
 ## Build brief
 
-Add a cube-value type with five states:
+Replace the provisional handle-based pattern with coordinate-derived startup
+generation:
 
-- zero/none at numeric value zero;
-- A, B, C, and D as the real categories;
-- a one-byte underlying representation.
+1. Keep the existing contiguous `cube_count + 1` value buffer and zero stub.
+2. Add a small function that accepts a cube coordinate and returns a 32-bit
+   mixed value.
+3. Give X, Y, and Z distinct influence before applying an avalanche sequence.
+4. During startup, traverse the field coordinates in the same X-fastest order
+   used by rendering.
+5. Derive each coordinate's one-based handle and store its generated value at
+   that handle.
+6. Map the mixed result only onto A, B, C, or D. Never generate `VALUE_NONE` for
+   a real cube.
+7. Leave the buffer immutable after startup.
+8. Preserve cube coloring, selected wireframe, selected-value label, camera,
+   axes, grid, and cleanup behavior.
 
-Then:
-
-1. Determine the number of real cubes from the current field dimensions.
-2. Create one contiguous value buffer with room for the zero stub and every
-   real handle.
-3. Leave slot zero in its zero-initialized state.
-4. Populate slots `1..cube_count` once at startup using a simple provisional
-   repeating pattern. Variation is the goal; deterministic hashing comes in
-   Checkpoint 15.
-5. In the existing cube render loop, derive the cube handle and load its value
-   from the buffer.
-6. Translate that value to a temporary visible fill color. Keep this translation
-   deliberately small because Checkpoint 16 will replace it with palettes.
-7. Preserve the selected-cube indication—using a distinct edge/wire color is a
-   clean way to show selection without hiding the value fill.
-8. Add the selected cube's A/B/C/D label to the existing overlay.
-9. Release provisional storage explicitly at shutdown if the storage mechanism
-   you chose requires it.
+The mapping from a well-mixed integer to four categories can use a small range
+of result bits because four equally sized outcomes divide the integer range
+exactly. The hard part is making those bits well mixed first.
 
 ## Visible finish
 
-The same centered field and camera controls still work, but cubes now show four
-clearly distinguishable fill colors. The selected cube remains identifiable,
-and the overlay reports its handle, recovered coordinate, round-trip result,
-and semantic value.
+The cube field looks irregularly mixed rather than striped. Closing and
+restarting the executable produces exactly the same arrangement.
 
-Changing the provisional pattern should redistribute colors without changing
-cube positions or handles.
+Temporarily increasing the field dimensions is acceptable if you need a larger
+sample to expose weak patterns, but keep the application responsive and retain
+the arbitrary even/odd centering behavior.
 
 ## Constraints
 
-- Store one byte per cube value.
-- Allocate capacity for `cube_count + 1`; real data starts at index one.
-- Slot zero remains the all-zero value stub.
-- Initialize values once before the frame loop; do not mutate them each frame.
-- Keep positions implicit and continue deriving them in the render loop.
-- Do not store per-cube colors, centers, bounds, or handles.
-- Do not add palette structs, deterministic hashing, an allocator interface, or
-  an `app` module yet.
-- Use explicit loops and control flow; avoid ternary operators.
-- Preserve existing orbit, zoom, cursor, grid, axes, and overlay behavior.
-- Keep the executable buildable and runnable throughout the attempt.
+- Generation happens once before the frame loop.
+- Values depend only on stable cube coordinates and fixed program constants.
+- Do not use time, frame count, `rand`, operating-system entropy, or mutable
+  random-generator state.
+- Slot zero remains `VALUE_NONE`.
+- Every real handle receives exactly one A/B/C/D value.
+- Continue storing only one semantic byte per cube.
+- Do not store per-cube coordinates, handles, positions, or colors.
+- Do not generate or hash values during rendering.
+- Use unsigned integer arithmetic for intentional wraparound.
+- Avoid ternary operators and preserve explicit control flow.
+- Keep the application buildable and runnable throughout the attempt.
 
 ## Just-in-time hints
 
-- Give the enum an explicitly byte-sized underlying type; verify the size if
-  you are unsure what the compiler selected.
-- Your handle already contains exactly the index needed by the value buffer.
-  Conversion to coordinates is not required for the lookup.
-- Populate real slots with a loop over handles or while traversing coordinates.
-  Ask which version makes the one-based invariant easiest to inspect.
-- A simple modulo pattern is acceptable here. Be careful that zero is reserved
-  while the four real categories form a four-value cycle.
-- A small helper that returns the zero stub for an invalid handle can keep the
-  render loop readable without turning a pointer into cube identity.
-- If the selected cube fill must show its category, emphasize selection with
-  its wireframe rather than replacing the fill.
+- A useful shape is one coordinate-mixing function returning `std::uint32_t`.
+  Keep it independent of Raylib and rendering.
+- Mixing X, Y, and Z with different fixed odd values prevents the axes from
+  contributing identically.
+- Avalanche steps commonly alternate XOR-with-shift and multiplication. Inspect
+  the resulting behavior rather than assuming any collection of operations is
+  good enough.
+- With four real categories, think about how two well-mixed output bits cover
+  four outcomes without generating zero.
+- Use your existing coordinate-to-handle function when writing the buffer. That
+  keeps storage identity in one place.
+- If the result still forms stripes, test coordinates separated by powers of
+  two; weak low bits often reveal themselves there.
+
+Ask for the next level of hint if you become blocked. Start with the behavior
+and inspect the pattern before pursuing a sophisticated hash.
 
 ## References if blocked
 
-- `REPORT.md`, sections 8.2, 8.3, and 8.5.
-- `CURRICULUM.md`, Checkpoint 14.
-- The existing handle calculation and X-innermost loops in `src/main.cpp`.
-- C++ fixed-width integer types in `<cstdint>`.
+- `REPORT.md`, section 8.3.
+- `CURRICULUM.md`, Checkpoint 15.
+- Unsigned integer arithmetic in the Microsoft C++ language reference.
+- Your existing coordinate/handle conversion in `src/main.cpp`.
 
 Do not inspect the finished `reference/` implementation before attempting the
 checkpoint unless you are genuinely blocked.
@@ -118,22 +117,24 @@ checkpoint unless you are genuinely blocked.
 
 Submit the running implementation when ready. Review will check:
 
-- slot zero is a real all-zero stub and never populated as a cube;
-- the buffer has exactly one byte-wide category per real handle;
-- all accesses are bounded and use handles as identity;
-- generation happens once rather than inside the frame loop;
-- no redundant per-cube positions, colors, or handles were introduced;
-- all four values are visibly represented;
-- the selected overlay reports the same value used to draw that cube;
-- existing behavior still works and the learner build passes.
+- slot zero and the one-byte buffer remain correct;
+- every real handle is initialized exactly once at startup;
+- generation is a pure function of coordinate and fixed constants;
+- real cubes receive only A through D;
+- the arrangement repeats across runs;
+- obvious handle-order stripes are removed;
+- generation performs no per-frame work or redundant storage;
+- existing behavior and cleanup remain intact;
+- the learner build passes.
 
-Reflection follows after the executable works.
+Reflection follows after the executable works: where weak patterns appeared,
+which result bits were used, and what the avalanche changed.
 
 ## Resume prompt
 
-> I am starting Checkpoint 14 from `CURRENT_STEP.md`: a contiguous byte-wide
-> A/B/C/D value buffer indexed by one-based cube handles. I will implement the
-> runnable result first, ask for hints if blocked, and submit it for review.
+> I am starting Checkpoint 15 from `CURRENT_STEP.md`: replace the provisional
+> handle pattern with deterministic coordinate hashing performed once at
+> startup. I will submit the running result for review.
 
-After Checkpoint 14 passes, update the authoritative ledger and move to
-Checkpoint 15: deterministic value generation.
+After Checkpoint 15 passes, update the authoritative ledger and move to
+Checkpoint 16: palette-defined fill and edge colors.

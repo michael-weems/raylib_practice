@@ -5,6 +5,7 @@
 #include "sdk/orbit_camera.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
@@ -28,6 +29,15 @@ struct Dim {
 };
 struct Handle {
    uint32_t id;
+};
+
+enum Value : std::uint8_t {
+   VALUE_NONE = 0,
+   VALUE_A,
+   VALUE_B,
+   VALUE_C,
+   VALUE_D,
+   VALUE_COUNT
 };
 
 Dim MAX_DIM{ MAX_X, MAX_Y, MAX_Z };
@@ -60,7 +70,49 @@ static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
    return true;
 }
 
+static Color get_cube_color(Value v) {
+   switch (v) {
+   case VALUE_A: return YELLOW;
+   case VALUE_B: return MAGENTA;
+   case VALUE_C: return BLUE;
+   case VALUE_D: return GREEN;
+   default:      return RED;
+   }
+}
+
+static const char * get_value_string(Value v) {
+   switch (v) {
+   case VALUE_A: return "A\0";
+   case VALUE_B: return "B\0";
+   case VALUE_C: return "C\0";
+   case VALUE_D: return "D\0";
+   default:      return "OOPS\0";
+   }
+}
+
+uint32_t hash32(uint32_t a) {
+    a = (a ^ 61) ^ (a >> 16);
+    a = a + (a << 3);
+    a = a ^ (a >> 4);
+    a = a * 0x27d4eb2d;
+    a = a ^ (a >> 15);
+    return a;
+}
+
 int main() { 
+   Handle largest_handle{ max_handle(MAX_DIM) };
+
+   Value* values = static_cast<Value*>(std::malloc((largest_handle.id + 1) * sizeof(Value)));
+   if (values == nullptr) {
+      std::cerr << "ERR: ALLOC VALUES" << std::endl;
+      return 1;
+   }
+
+   values[0] = VALUE_NONE;
+   for (uint32_t i{ 1 }; i <= largest_handle.id; ++i) { 
+      values[i] = static_cast<Value>((hash32(i) % (VALUE_COUNT - 1)) + 1);
+   }
+
    sdk::Runtime_Config config = {};
    sdk::Runtime_State runtime = {};
 
@@ -75,8 +127,12 @@ int main() {
       case sdk::RUNTIME_ERROR_WINDOW_INITIALIZATION:
          std::cerr << "ERR: WINDOW INITIALIZATION" << std::endl;
          break;
+      default:
+         break;
       }
 
+      std::free(values);
+      values = nullptr;
       return result;
    }
 
@@ -137,9 +193,10 @@ int main() {
       if ((int)text_y >= config.screen_height) text_y = 0.0f;
 
       Coord selected{1,3,4};
-      Handle handle{ get_handle(selected, MAX_DIM) };
+      Handle selected_handle{ get_handle(selected, MAX_DIM) };
       Coord c = {};
-      bool is_selected_valid{ get_coordinates(handle, MAX_DIM, c) };
+      bool is_selected_valid{ get_coordinates(selected_handle, MAX_DIM, c) };
+      Value selected_value{ VALUE_NONE };
 
       BeginDrawing();
          ClearBackground(BLACK);
@@ -158,18 +215,22 @@ int main() {
                      // 0 1 2 3 4 5
                      //       ^
 
+                     Handle cube_handle{ get_handle(Coord{x,y,z}, MAX_DIM) };
+                     Value cube_value{ values[cube_handle.id] };
+                     Color cube_color{ get_cube_color(cube_value) };
+
                      Vector3 p = {};
                      p.x = CUBE_SPACING * (static_cast<float>(x - (MAX_X / 2)) + (static_cast<float>((MAX_X & 1) == 0) * 0.5f));
                      p.y = CUBE_SPACING * (static_cast<float>(y - (MAX_Y / 2)) + (static_cast<float>((MAX_Y & 1) == 0) * 0.5f));
                      p.z = CUBE_SPACING * (static_cast<float>(z - (MAX_Z / 2)) + (static_cast<float>((MAX_Z & 1) == 0) * 0.5f));
 
-                     if (is_selected_valid && handle.id == get_handle(Coord{x,y,z}, MAX_DIM).id) {
-                        DrawCubeV(p, CUBE_SIZE, GREEN);
+                     DrawCubeV(p, CUBE_SIZE, cube_color);
+                     if (is_selected_valid && selected_handle.id == cube_handle.id) {
+                        DrawCubeWiresV(p, CUBE_SIZE, LIME);
                      } else {
-                        DrawCubeV(p, CUBE_SIZE, YELLOW);
+                        DrawCubeWiresV(p, CUBE_SIZE, RAYWHITE);
                      }
 
-                     DrawCubeWiresV(p, CUBE_SIZE, MAGENTA);
                   }
                }
             }
@@ -190,7 +251,8 @@ int main() {
          y_offset += font_size;
 
          if (is_selected_valid) {
-            DrawText(TextFormat("CUBE: handle = %u | x = %i  y = %i  z = %i", handle.id, c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
+            selected_value = values[selected_handle.id];
+            DrawText(TextFormat("CUBE: handle = %u  value = %s | x = %i  y = %i  z = %i", selected_handle.id, get_value_string(selected_value), c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
          } else { 
             DrawText("CUBE: handle = FAIL", x_offset, y_offset, font_size, RAYWHITE);
          }
@@ -205,6 +267,9 @@ int main() {
          }
       EndDrawing();
    }
+
+   std::free(values);
+   values = nullptr;
 
    sdk::runtime_shutdown(runtime);
 
