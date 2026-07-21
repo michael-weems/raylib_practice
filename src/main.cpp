@@ -85,6 +85,14 @@ static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
    return true;
 }
 
+static Vector3 get_world_vector3(Coord coords, Dim widths, float spacing) {
+   return Vector3{
+      spacing * (static_cast<float>(coords.x - (widths.x / 2)) + (static_cast<float>((widths.x & 1) == 0) * 0.5f)),
+      spacing * (static_cast<float>(coords.y - (widths.y / 2)) + (static_cast<float>((widths.y & 1) == 0) * 0.5f)),
+      spacing * (static_cast<float>(coords.z - (widths.z / 2)) + (static_cast<float>((widths.z & 1) == 0) * 0.5f))
+   };
+}
+
 static const char * get_value_string(Value v) {
    switch (v) {
    case VALUE_A: return "A\0";
@@ -263,10 +271,7 @@ int main() {
                      Handle cube_handle{ get_handle(Coord{x,y,z}, MAX_DIM) };
                      Value cube_value{ values[cube_handle.id] };
 
-                     Vector3 p = {};
-                     p.x = CUBE_SPACING * (static_cast<float>(x - (MAX_X / 2)) + (static_cast<float>((MAX_X & 1) == 0) * 0.5f));
-                     p.y = CUBE_SPACING * (static_cast<float>(y - (MAX_Y / 2)) + (static_cast<float>((MAX_Y & 1) == 0) * 0.5f));
-                     p.z = CUBE_SPACING * (static_cast<float>(z - (MAX_Z / 2)) + (static_cast<float>((MAX_Z & 1) == 0) * 0.5f));
+                     Vector3 p{ get_world_vector3(Coord{x,y,z}, MAX_DIM, CUBE_SPACING) }; 
 
                      DrawCubeV(p, CUBE_SIZE, styles.styles[cube_value].fill_color);
                      if (is_selected_valid && selected_handle.id == cube_handle.id) {

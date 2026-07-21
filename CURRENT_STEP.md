@@ -2,175 +2,151 @@
 
 ## Resume here
 
-Checkpoints 1 through 16 are complete. Checkpoint 17 is **Refactor proven
-application boundaries**. It is deliberately divided into independently
-runnable substeps:
+Checkpoints 1 through 16 are complete. Checkpoint 17 is **Persistent selected
+target**.
 
-1. **17A:** extract pure cube-field rules;
-2. **17B:** compose application state and frame behavior around the proven code;
-3. **17C:** add focused nonvisual core tests and finish the small composition
-   root.
+The highlighted coordinate in the current frame loop is temporary local data,
+while the orbit camera still targets the world origin. This checkpoint makes
+selection persistent and connects it to the camera's focus point.
 
-Only substep 17A is active. Do not attempt the later substeps yet.
+Build directly in `main.cpp`. Do not create an application module, controller
+framework, or refactor checkpoint.
 
-## Why refactor now
+## New graphics concept: moving an orbit's focus point
 
-`main.cpp` currently proves several useful behaviors, but it also knows every
-detail of them. The field's identity math, value generation, position math, and
-palette rules are now stable enough to have a name and an interface.
-
-This refactor should move working code, not reinvent it. The executable must
-remain visually and interactively unchanged after every small move.
-
-## New concept: dependency boundaries
-
-A useful module groups code by what it knows:
+Your orbit camera is derived from four authoritative values:
 
 ```text
-app/cube_field
-    knows coordinates, dimensions, handles, values, positions, and palettes
-    does not know windows, input keys, cameras, frame timing, or drawing order
-
-main.cpp
-    owns startup/shutdown, memory, input polling, and the frame loop
-    asks cube_field for application-specific facts
-
-sdk
-    retains reusable Raylib policy already proven by runtime and orbit camera
+target + yaw + pitch + distance -> camera position and Camera3D
 ```
 
-The dependency direction matters. `main.cpp` may use `app/cube_field`; the
-cube-field module must not call back into `main.cpp` or depend on the SDK.
+Changing only `target` translates the complete orbit sphere through world space.
+Yaw, pitch, and distance still describe the camera's orientation and radius
+relative to that new focus point.
 
-A **pure** function produces its answer only from its arguments and does not
-read input devices, open windows, draw, allocate hidden memory, or mutate
-unrelated global state. Pure field functions will later be easy to test without
-launching Raylib.
+For cube selection, keep the stable cube handle as persistent identity:
 
-## Build target for 17A
+```text
+selected handle -> grid coordinate -> world-space cube center -> camera target
+```
 
-Create `src/app/cube_field.h` and `src/app/cube_field.cpp`. Move the already
-proven cube-field responsibilities out of `main.cpp`:
+The coordinate and center are derived answers. Storing all three as independent
+authoritative state would allow them to disagree.
 
-- coordinate and dimension data;
-- one-based cube handles and zero-handle behavior;
-- A/B/C/D values and labels;
-- coordinate/handle conversion;
-- deterministic coordinate hashing and caller-provided value generation;
-- coordinate-to-world-center calculation, including even/odd centering;
-- visual styles, palette data, palette handles, named palette constants, and
-  palette initialization/lookup.
+## Frame-order concept
 
-Use an `app` namespace so generic concepts such as a handle or coordinate do
-not leak into the global namespace.
+The camera used for drawing must reflect this frame's selection:
 
-Keep these responsibilities in `main.cpp` for now:
+```text
+poll selection event
+    -> update selected handle
+    -> derive coordinate and center
+    -> assign orbit target
+    -> derive Camera3D
+    -> draw and report the same selected cube
+```
 
-- the executable entry point;
-- allocation and release of the value buffer;
-- runtime and camera configuration/state;
-- Raylib input polling;
-- `BeginDrawing`, `BeginMode3D`, all draw calls, and the overlay;
-- selection's temporary hard-coded coordinate;
-- top-level initialization, failure cleanup, and shutdown order.
+If camera derivation happens before selection changes, the scene can display one
+selected cube while the camera targets the previous cube for a frame. This is a
+small example of why update order matters in interactive graphics.
 
-This is not yet the final architecture. It is the smallest extraction justified
-by the code that already works.
+## Build brief
 
-## Suggested hands-on sequence
+1. Move the selected cube handle outside the frame loop so it persists between
+   frames.
+2. Initialize it from a known valid coordinate near the field center.
+3. Add one temporary discrete key, such as `N`, that toggles between that cube
+   and one other known valid cube. This is only a visible retargeting test; full
+   navigation begins in Checkpoint 20.
+4. Each frame, derive the selected coordinate from the selected handle.
+5. Derive the selected cube's exact world-space center using the same centering
+   formula used to draw cube centers.
+6. Assign that center to the orbit camera target before calling the orbit-camera
+   update.
+7. Use the persistent selected handle for highlighting and the overlay.
+8. Preserve current yaw, pitch, distance, cursor capture, zoom, palette keys,
+   deterministic values, and shutdown behavior.
 
-Keep the application runnable between each move:
+## A useful small helper
 
-1. Create the header and implementation, add them to the existing CMake
-   executable, and confirm an otherwise-empty module builds.
-2. Move the field types and coordinate/handle functions. Update call sites and
-   build.
-3. Move value labels, hashing, and generation behind a function that fills the
-   caller-owned `Value*` buffer. Allocation remains in `main.cpp`. Build and run.
-4. Move the even/odd world-center calculation into a field function so the
-   render loop no longer owns that formula. Build and run.
-5. Move palette types, named handles, initialization, and style lookup. Build
-   and run again.
-6. Remove the old duplicate definitions only after every call site uses the
-   module.
+Camera targeting and rendering now require the same coordinate-to-world-center
+calculation. A single static function for that calculation is a useful
+correctness boundary, not an architecture exercise:
 
-If a move breaks behavior, undo only that move mentally or with a small edit;
-do not continue stacking extra changes on top of it.
+```text
+grid coordinate + dimensions + spacing -> world-space center
+```
 
-## Interface guidance
+Use it for both drawing and camera targeting. This prevents a future spacing or
+even/odd-centering change from moving the visible cube without moving its camera
+target, picking box, or annotations.
 
-- Put public types, constants, and function declarations in the header.
-- Put function bodies and private hashing helpers in the `.cpp` file.
-- Keep the existing compact value stream: one zero byte followed by one byte
-  per real cube.
-- Caller-provided memory is represented by a pointer because it is backing
-  storage, not object identity.
-- Tiny coordinates, dimensions, handles, and values may be passed by value.
-  Use references for required larger borrowed records and returned palette/style
-  views.
-- Palette/style lookup should preserve the useful zero stubs.
-- Do not allocate inside the cube-field module in this substep.
-- Do not store per-cube coordinates, centers, colors, or handles.
-- Do not expose private hash helpers merely because they live in another file.
-- Prefer a few semantically complete functions over chains of tiny wrappers.
-
-You decide the exact function names and grouping. Let the current call sites
-tell you what the interface needs instead of designing for hypothetical users.
+You choose its exact name and signature. It can remain in `main.cpp`.
 
 ## Visible finish
 
-The executable behaves exactly as it did at the end of Checkpoint 16:
-
-- the centered field renders with deterministic values;
-- palettes 1/2/3 switch fill and edge colors;
-- the selected cube remains highlighted;
-- orbit, zoom, capture, axes, overlay, and shutdown still work;
-- `main.cpp` no longer contains cube identity, generation, position, or palette
-  implementation details.
+- The camera orbits the highlighted cube's exact center.
+- Pressing the temporary toggle key snaps selection and the orbit target to the
+  second cube in the same frame.
+- Retargeting does not reset yaw, pitch, or distance.
+- The selected wireframe and overlay change to the same cube.
+- Palette switching and all existing camera/cursor behavior continue to work.
 
 ## Constraints
 
-- Do not copy from `reference/` before attempting the extraction.
-- Do not add an allocator abstraction, arena, application framework, renderer,
-  input snapshot, or tests yet.
-- Do not move direct Raylib frame or drawing calls into the field module.
-- Do not create classes, constructors, destructors, templates, STL containers,
-  or hidden ownership.
-- Avoid ternary operators and iterator-style loops.
-- Preserve one-based handles, all-zero stubs, data layout, traversal order, and
-  immediate-mode rendering.
-- Update only project-owned CMake/source files; vendor Raylib remains immutable.
-- End every sequence item with a buildable, runnable application.
+- Store one selected handle, not a pointer to a cube.
+- Do not store a per-cube position array.
+- Do not directly push the camera position by the target delta; derive it from
+  target/yaw/pitch/distance through the existing orbit update.
+- Use `IsKeyPressed()` for the temporary discrete toggle.
+- Process retargeting before camera derivation to avoid a one-frame mismatch.
+- Keep rendering immediate-mode.
+- Keep hot cube values contiguous and unchanged; selection adds no per-cube
+  storage.
+- No module extraction is required.
 
-## If you become blocked
+## Just-in-time hints
 
-Classify a line by asking: "Could this produce a useful answer in a command-line
-test without opening a window?" If yes and the answer is about cube-field data,
-it probably belongs in `app/cube_field`. If it polls Raylib state, draws, owns
-the process loop, or reports frame diagnostics, leave it in `main.cpp`.
+- For each axis, the field-center coordinate can begin with integer
+  `dimension / 2`; either of the two middle coordinates is a valid convention
+  for an even dimension.
+- Choose the second coordinate by changing one axis by one while remaining in
+  bounds.
+- Your existing handle-to-coordinate conversion already reports whether the
+  selected identity is valid.
+- The same helper should replace the three repeated position expressions in the
+  render loop.
+- If the camera orbits between cubes rather than around the selected cube,
+  inspect whether `camera_state.target` is updated before `orbit_camera_update()`.
 
-Ask for a hint about one boundary or one function signature at a time. Do not
-inspect the finished reference unless the extraction has stopped being a useful
-learning exercise.
+## References if blocked
 
-## Review target for 17A
+- `REPORT.md`, sections 8.1–8.2 and 10.
+- `raylib.h` definitions for `Camera3D` and `Vector3`.
+- `raymath.h` vector addition/subtraction helpers.
+- `3D_SPACE_CURRICULUM.md` orbit-camera exercises.
 
-Submit the running extraction when ready. Review will check:
+Do not inspect the reference implementation before attempting this checkpoint
+unless you are genuinely blocked.
 
-- the learner build passes with the new CMake sources;
-- executable behavior is unchanged according to your runtime check;
-- `app/cube_field` owns cohesive pure field/value/palette rules;
-- `main.cpp` still clearly owns memory and the immediate-mode frame loop;
-- generation writes caller-provided storage once at startup;
-- position and style data remain calculated/looked up rather than duplicated;
-- public names and ownership are understandable without deep call chains;
-- no premature application, allocator, rendering, or test framework appeared.
+## Review target
 
-After 17A passes, reflection will identify what the extraction clarified before
-substep 17B begins.
+Submit the running implementation when ready. Review will check:
+
+- selected identity persists outside the frame loop;
+- coordinate and center are derived rather than duplicated state;
+- drawing and camera targeting use identical center math;
+- retargeting happens before camera derivation;
+- yaw, pitch, distance, and capture behavior survive a snap;
+- overlay, highlight, and camera agree on the selected cube;
+- no redundant per-cube storage or architecture work appeared;
+- the learner build passes.
+
+Reflection follows after it works: which values moved, which remained unchanged,
+and why changing the target translated rather than rotated the orbit.
 
 ## Resume prompt
 
-> I am starting Checkpoint 17A from `CURRENT_STEP.md`: extract the proven pure
-> cube-field, value, position, and palette rules into `src/app/cube_field` while
-> keeping memory ownership and immediate-mode drawing in `main.cpp`.
+> I am starting Checkpoint 17 from `CURRENT_STEP.md`: persist one selected cube
+> handle, derive its world center, and make the existing orbit camera snap its
+> target between two cubes without resetting orientation or zoom.

@@ -8,6 +8,11 @@ Coach the learner through rebuilding a CPU software-rendered Raylib cube-field
 application under `src/`. Work one small checkpoint at a time. Every checkpoint
 must end with a buildable executable and a visible result.
 
+The learner is a professional software developer. Teach Raylib, graphics
+mathematics, coordinate spaces, rendering pipelines, game/event interaction,
+software-rendering performance, and memory/cache behavior. Do not teach generic
+refactoring or architecture. A single file with static functions is acceptable.
+
 The learner works best by doing:
 
 - give a concrete runnable target, constraints, useful hints, and only the
@@ -16,8 +21,8 @@ The learner works best by doing:
 - answer questions through graduated hints, providing finished code only when
   explicitly requested or when a concept has stopped being productive;
 - review and repair the running attempt, then reflect on lessons learned;
-- extract modules only after working code creates reuse, ownership, or policy
-  pressure;
+- suggest a helper or module only when it directly clarifies repeated graphics
+  math, Raylib resource lifetime, correctness, or measured performance;
 - encourage a commit after each passing checkpoint.
 
 Do not turn checkpoints into up-front architecture quizzes. Preserve learner
@@ -31,7 +36,8 @@ tests for coach-side verification.
 - `CURRICULUM.md` contains the durable 50-checkpoint route. Its progress ledger
   is the single authoritative record of completed work.
 - `CURRENT_STEP.md` contains only the detailed brief for the active checkpoint.
-- Checkpoints 1 through 16 are complete; Checkpoint 17 is active at substep A.
+- Checkpoints 1 through 16 are complete; Checkpoint 17 (persistent selected
+  target) is active.
 - `3D_SPACE_CURRICULUM.md` is an independent 12-week mathematics practice track
   and does not change main-curriculum progress.
 
@@ -39,12 +45,13 @@ Do not duplicate checkpoint history in this file.
 
 ## Reference roles
 
-- `reference/` is the definitive finished behavioral and architectural oracle.
+- `reference/` is the definitive finished behavioral and technical oracle.
   It is an independent CMake project and must not link with the learner app.
 - The Git tag `baseline` is older historical design evidence. It may explain a
   past decision but does not override the current reference or curriculum.
-- Neither reference is starter code. Let the learner attempt a checkpoint
-  before comparing implementations unless they request study or are blocked.
+- Neither reference is starter code or a required architecture. Let the learner
+  attempt a checkpoint before comparing graphics techniques unless they request
+  study or are blocked.
 - `REPORT.md` explains the finished reference architecture and Graphics
   Rendering 101 while clearly distinguishing it from the in-progress `src/`.
 
@@ -72,16 +79,16 @@ Do not duplicate checkpoint history in this file.
 - Avoid ternary operators; prefer explicit control flow.
 - References represent required borrowed inputs. Pointers represent backing
   memory, C strings/callback contexts, or pointer-plus-count streams.
-- Public state supports useful all-zero initialization and explicit shutdown.
-- Expected failures use integer result codes.
 - Stable array identities use one-based 32-bit handles. Index zero is an
   all-zero stub; transient dense command streams may remain zero-based.
-- Allocation APIs eventually accept `Allocator&`; the application chooses
-  memory placement. The frame arena is non-owning, has no fallback, and resets
-  after each frame.
+- Hot semantic data and transient command streams remain compact and contiguous.
+  X is the contiguous cube-field dimension unless measurement supports another
+  choice. Teach cache lines, L1/L2/L3 working sets, prefetch, and bandwidth with
+  measured traversal experiments.
 - Immediate-mode rendering may collect/sort transient commands within one
   frame, but retains no application scene or commands across frames.
-- SDK utilities complement Raylib; do not create a generic Raylib wrapper.
+- Helpers or SDK utilities may complement Raylib when repeated use proves their
+  value; module extraction is never a curriculum goal.
 - `vendor/raylib` is immutable; do not edit it or add change-detection work.
 
 ## Performance reasoning

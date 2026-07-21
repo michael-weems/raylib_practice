@@ -8,13 +8,19 @@ transcription route. You will learn the project by making one small, visible
 capability work at a time.
 
 There are **50 checkpoints** in eight phases. Every checkpoint ends with an
-executable you can launch and inspect. Most checkpoints add a visible behavior;
-architecture-only checkpoints preserve the existing scene and add a small
-diagnostic so you can prove the refactor still works.
+executable you can launch and inspect. From Checkpoint 17 onward, every step is
+about Raylib, graphics mathematics, rendering behavior, interaction, or measured
+software-rendering performance. Generic refactoring and allocator design are
+not curriculum subjects.
 
 The destination is the same as the reference application, but your intermediate
 code is allowed to be simpler. Do not design the final abstraction before you
 have felt the problem it solves.
+
+The learner is already a professional software developer. Explanations focus on
+graphics APIs, coordinate spaces, event-driven interaction, rendering pipelines,
+software-rasterization costs, and data/cache behavior—not general programming or
+refactoring technique.
 
 ## How we will work together
 
@@ -30,18 +36,19 @@ Every checkpoint uses a build-first, just-in-time loop:
 5. **Review and repair:** I review the implementation against the checkpoint;
    you make focused corrections and run it again.
 6. **Reflect afterward:** Once it works, I ask a few questions that connect the
-   code you just wrote to the underlying graphics or architecture concepts.
+   code you just wrote to the underlying graphics, interaction, or performance
+   concepts.
 7. **Commit:** Preserve the working checkpoint before moving forward.
 
-There is no up-front design gate. We introduce architecture when the code
-creates a reason for it, then reflect on tradeoffs with concrete evidence.
+There is no up-front design gate. New behavior begins in the simplest working
+location, including directly in `main.cpp`. A single source file with static
+functions is an acceptable result for this training project.
 
-New behavior begins in the simplest working application location. `sdk` is not
-a staging area for speculative abstractions: move code there only after a
-working implementation demonstrates reusable Raylib-specific policy. Extract
-`app` modules when cohesive data and lifecycle ownership have become visible in
-real code. Refactoring is therefore a later checkpoint outcome, not a condition
-for beginning a feature.
+When repeated graphics code, mismatched coordinate calculations, or unclear
+resource lifetime creates a concrete problem, I may suggest one small helper,
+struct, or module. That suggestion supports the graphics exercise; reorganizing
+the program is never itself a checkpoint. You will develop architectural taste
+later by building more graphics projects and noticing the boundaries repeatedly.
 
 Checkpoint card labels follow this order:
 
@@ -71,19 +78,17 @@ A checkpoint is complete when all of these are true:
 - The executable launches and displays the stated visible result.
 - Closing the window exits normally.
 - Previously completed controls still work.
-- Review finds no correctness or ownership issue that blocks later work.
+- Review finds no graphics, interaction, lifetime, or performance issue that
+  blocks later work.
 - After implementation, you can explain the main data entering and leaving the
   new behavior.
 - You have made a small checkpoint commit.
 
-At the final integration checkpoint, relevant automated tests must also pass.
-
 ## Rules for using the finished reference
 
 The runnable project under `reference/` is the definitive finished behavioral
-and architectural oracle. The `baseline` tag is older historical design
-evidence: it can explain why an interface once existed, but it does not override
-the current reference or the decisions recorded in this curriculum. Neither is
+and technical oracle. Its module layout is one possible implementation, not a
+curriculum target. The `baseline` tag is older historical evidence. Neither is
 starter code.
 
 Before completing a checkpoint, you may freely inspect:
@@ -93,18 +98,17 @@ Before completing a checkpoint, you may freely inspect:
 - official documentation linked below;
 - your own earlier commits.
 
-After your checkpoint works, you may compare structure with `reference/`.
-First list its modules without opening their implementations:
+After your checkpoint works, you may compare behavior or one graphics technique
+with `reference/`. Its source organization is optional study material. To see
+what exists without reading implementations:
 
 ```powershell
 rg --files reference
 ```
 
-Then inspect only the corresponding module. When both trees contain a matching
-file, `git diff --no-index -- <learner-path> <reference-path>` can show a direct
-comparison; a nonzero exit code is expected when the files differ. Avoid
-opening the reference implementation of a function before attempting your own
-unless you are genuinely blocked or intentionally studying alternatives.
+Then inspect only the graphics behavior you are studying. Avoid opening the
+reference implementation before attempting your own unless you are genuinely
+blocked or intentionally studying alternatives.
 
 Use `git show baseline:<path>` only when historical evidence is useful. Never
 switch the working tree to `baseline` over uncommitted work.
@@ -117,16 +121,15 @@ switch the working tree to `baseline` over uncommitted work.
   pointers, templates, or lambdas.
 - References for required borrowed inputs; pointers for real memory ranges,
   optional memory, callbacks, C strings, and pointer-plus-count streams.
-- Safe all-zero public state and explicit initialization/shutdown.
-- Integer result codes for expected failures.
+- Straightforward initialization/shutdown for Raylib resources.
 - One-based handles for stable array identities; zero is a harmless stub.
-- Caller-selected allocation at ownership boundaries.
+- Compact contiguous hot data, X-contiguous traversal, and explicit reasoning
+  about working sets, cache lines, L1/L2/L3, prefetch, and memory bandwidth.
 - Immediate-mode rendering; no retained application scene in the SDK.
 - No changes anywhere under `vendor/raylib`.
 
-Early checkpoints will not use every final rule immediately. When a later step
-introduces a rule, refactor the smallest affected surface and keep the visual
-result alive.
+Helpers and modules are optional unless a graphics feature needs one shared
+calculation to remain correct. Keep the visual result alive whenever code moves.
 
 ---
 
@@ -472,180 +475,187 @@ value buffer; do not cache a second per-cube color array.
 **Self-check:** Log or overlay one cube's value before and after palette changes;
 the value must not change.
 
-## Checkpoint 17 — Refactor proven application boundaries
-
-**Challenge:** Now that field configuration, cube identity, values, generation,
-palettes, camera control, update behavior, and rendering all exist, identify the
-boundaries that the working code is asking for. Extract only those proven
-responsibilities into `app` modules and keep reusable Raylib policy in `sdk`.
-Add the first small nonvisual core-test executable for the pure invariants that
-the extraction makes callable without opening a window.
-
-**Visible finish:** The same colored field and controls run, while `main.cpp`
-becomes a small composition root with explicit initialization, loop, and
-shutdown. The core tests run independently and report success.
-
-**Reflect after:** Which extraction removed real duplication or ownership
-confusion? Which possible abstraction still lacked enough evidence to create?
-
-**Hints:** Move cohesive working code rather than redesigning it. Preserve data
-layout and call order first; improve names and interfaces only after behavior is
-unchanged. Start tests with odd/even centering, first/last/invalid handle round
-trips, zero value/palette stubs, and deterministic generation. Do not test
-Raylib window behavior here.
-
-**Read:** `REPORT.md`, sections 6 and 16, after the first extraction attempt.
-
-**Self-check:** Compare the pre-refactor and post-refactor executable behavior,
-run the core tests through CTest, then force one startup failure and confirm
-shutdown remains safe.
-
 ### Phase 3 gate
 
-You should now be able to estimate the bytes required for 50 million categories
-and explain why positions are not part of that estimate.
+You should now be able to estimate the bytes required for 50 million categories,
+explain why positions are not part of that estimate, and describe why the value
+array is X-contiguous.
 
 ---
 
 # Phase 4 — Focused view and navigation
 
-This phase turns the field into an inspection application.
+This phase turns the field into an interactive inspection application while
+teaching Raylib event semantics, camera bases, unprojection, and ray collision.
 
-## Checkpoint 18 — Selected-cube state
+## Checkpoint 17 — Persistent selected target
 
-**Challenge:** Add an application view controller containing a selected handle
-and focused mode. Target the orbit camera at the selected cube.
+**Challenge:** Turn the temporary highlighted coordinate into persistent selected
+cube state and make the orbit camera target that cube's exact world-space center.
+Add one temporary key that toggles between two known valid cubes so retargeting
+can be observed before full navigation exists.
 
-**Visible finish:** One cube is visibly emphasized, the camera orbits its exact
-center, and the overlay shows its handle/coordinate/value.
+**Visible finish:** The camera orbits the highlighted cube rather than the world
+origin. Toggling selection snaps the orbit center without resetting yaw, pitch,
+or distance, and the overlay shows the selected handle/coordinate/value.
 
-**Reflect after:** Why should the controller store a handle rather than a cube
-pointer or duplicate position?
+**Reflect after:** Which state is authoritative: handle, coordinate, world center,
+or `Camera3D.target`? Which values are persistent and which are derived?
 
-**Hints:** Start by selecting the field's center coordinate during controller
-initialization.
+**Hints:** Derive the selected coordinate and center from the handle. Use the
+same coordinate-to-center calculation for drawing and camera targeting so the
+two systems cannot disagree.
 
-**Read:** `REPORT.md`, sections 8.2 and 10.
+**Read:** `REPORT.md`, sections 8.1–8.2 and 10.
 
-**Self-check:** Snapping between two known handles changes target but preserves
-camera yaw and pitch.
+**Self-check:** Orbit before and after retargeting. Orientation and zoom should
+remain unchanged while the whole orbit sphere translates to the new target.
 
-## Checkpoint 19 — A bounded focused region
+## Checkpoint 18 — A bounded focused region
 
-**Challenge:** Render only coordinates inside a radius-sized region around the
-selected cube, clamped to field bounds.
+**Challenge:** Render only a coordinate box extending five cubes from the
+selected cube, clamped independently against all six field boundaries.
 
-**Visible finish:** A local cube neighborhood follows the selection; selecting
-near an edge produces a clipped neighborhood without invalid memory access.
+**Visible finish:** A small local neighborhood follows selection. Moving the
+temporary selection between a center cube and an edge cube visibly clips the
+rendered box without invalid memory access.
 
-**Reflect after:** Why compute minimum/maximum once before the hot loops? Where can
-unsigned subtraction underflow?
+**Reflect after:** Why calculate candidate bounds once before the hot loops?
+Where can signed/unsigned underflow appear near coordinate zero?
 
-**Hints:** Use wider arithmetic when adding a radius near the maximum coordinate.
-
-**Read:** `REPORT.md`, section 12.2.
-
-**Self-check:** Exercise all eight field corners.
-
-## Checkpoint 20 — Euclidean radius culling
-
-**Challenge:** Turn the local box into a radius-five sphere in grid space.
-
-**Visible finish:** Box corners disappear, leaving a rounded lattice volume of
-roughly 515 cubes away from boundaries. The overlay reports both coordinates
-tested in the clamped candidate box and cubes accepted for submission.
-
-**Reflect after:** Why compare squared distance instead of taking a square root?
-Which differences need signed or wider types?
-
-**Hints:** Keep the clamped box as the enumeration bound; add a cheap acceptance
-test inside it. Treat the two counters as evidence about algorithmic work, not
-as a renderer abstraction. If you report frame timing or FPS as a performance
-result, use `tools\build-performance.ps1 -App src -BuildType RelWithDebInfo`;
-Debug numbers are only interaction checks.
+**Hints:** Keep the selected coordinate signed while subtracting the radius, or
+explicitly clamp before converting to unsigned identities. Count candidates in
+the overlay.
 
 **Read:** `REPORT.md`, sections 12.2 and 13.
 
-**Self-check:** Predict candidate and submitted counts at the field center and
-near a corner, then compare the overlay with those predictions.
+**Self-check:** Temporarily target each field corner and compare the candidate
+count with the count at the center.
 
-## Checkpoint 21 — One semantic input snapshot
+## Checkpoint 19 — Euclidean radius culling
 
-**Challenge:** Poll Raylib once per frame into semantic actions and analog mouse
-values consumed by the app/controller.
+**Challenge:** Keep the clamped candidate box, but accept only coordinates within
+a radius-five sphere in grid space.
 
-**Visible finish:** Existing camera and palette controls behave identically; an
-overlay can briefly list action names as they fire.
+**Visible finish:** The box corners disappear, leaving a rounded lattice volume
+of roughly 515 cubes away from field boundaries. The overlay reports candidates
+tested and cubes submitted.
 
-**Reflect after:** What goes wrong when two systems independently consume mouse
-delta? Which controls are edge-triggered versus continuous?
+**Reflect after:** Why compare squared distance instead of distance? How does a
+cheap CPU rejection reduce much more expensive software rasterization work?
 
-**Hints:** A bit mask suits simultaneous button actions; mouse delta and wheel
-remain ordinary values.
+**Hints:** Subtract coordinates in a signed type. Compare `dx*dx + dy*dy + dz*dz`
+against `radius*radius` and avoid `sqrt` entirely.
 
-**Read:** `REPORT.md`, section 10.
+**Read:** `REPORT.md`, sections 12.2 and 13.
 
-**Self-check:** Press multiple compatible controls in one frame and observe all
-relevant action bits.
+**Self-check:** Predict accepted counts at the field center and at a corner,
+then compare those predictions with the overlay.
 
-## Checkpoint 22 — Face-adjacent world navigation
+## Checkpoint 20 — Raylib event semantics and discrete navigation
 
-**Challenge:** Move the selection by one valid neighboring cube using
-WASD/arrows, initially in fixed world directions.
+**Challenge:** Use Raylib keyboard queries to move selection one face-adjacent
+cube in fixed world directions. Deliberately compare `IsKeyPressed()` with
+`IsKeyDown()` before choosing the behavior appropriate for discrete snapping.
 
-**Visible finish:** Each key snaps the target exactly one cube, never leaving the
-field.
+**Visible finish:** One key press produces exactly one neighbor transition and
+one camera snap; holding the key does not advance hundreds of cubes per second.
+Selection never leaves the field.
 
-**Reflect after:** Is navigation changing a world position, a coordinate, or a
-handle? Which representation makes bounds checking simplest?
+**Reflect after:** What is the difference between an input state, an edge event,
+and a time-scaled continuous action? Which type describes orbiting, zooming, and
+cube snapping?
 
-**Hints:** Resolve handle to coordinate, alter one axis, validate, then resolve
-back to a handle.
+**Hints:** Convert selected handle to coordinate, alter one axis, validate it,
+then convert back to a handle. Keep the temporary toggle only until this works.
 
-**Read:** `REPORT.md`, section 10.
+**Read:** The input section of [R1] and local Raylib core input examples.
 
-**Self-check:** Hold each direction at every field boundary.
+**Self-check:** Tap, hold, and rapidly alternate keys at every relevant field
+boundary.
 
-## Checkpoint 23 — Camera-relative horizontal navigation
+## Checkpoint 21 — Visualize the camera basis
 
-**Challenge:** Make left/right/forward/back follow camera orientation instead of
-fixed world axes.
+**Challenge:** Derive normalized forward, right, and up vectors from the current
+camera and draw them as temporary colored lines at the selected cube.
 
-**Visible finish:** After rotating around the target, navigation still moves in
-the direction that looks left/right/forward/back on screen.
+**Visible finish:** Orbiting the camera rotates the basis visualization. Forward
+points from camera toward target, right tracks screen-right, and up completes a
+consistent orthogonal frame.
 
-**Reflect after:** What vectors describe camera forward and right? How do you map
-a continuous direction onto one discrete grid axis without diagonal movement?
+**Reflect after:** Why is `camera.up` not always identical to the derived view-up?
+How do normalization, dot products, and cross products establish a basis?
 
-**Hints:** Ignore vertical contribution for the first version. Compare dominant
-absolute components and preserve their signs.
+**Hints:** Start with `target - position`. Use cross products in a deliberate
+order and verify the result visually; swapping operands flips the direction.
+
+**Read:** [R5], `raymath.h`, and `3D_SPACE_CURRICULUM.md` vector-basis exercises.
+
+**Self-check:** Test near several yaw angles and near both pitch limits. The
+three vectors should remain perpendicular and should not suddenly mirror.
+
+## Checkpoint 22 — Camera-relative horizontal navigation
+
+**Challenge:** Make left/right/forward/back choose grid neighbors relative to
+what appears on screen rather than fixed world X/Z directions.
+
+**Visible finish:** After orbiting around the selected cube, navigation still
+moves visually left, right, away, or toward the viewer on the horizontal grid.
+
+**Reflect after:** How do continuous camera vectors become one discrete grid-axis
+step? What should happen near a 45-degree tie?
+
+**Hints:** Flatten forward and right onto the XZ plane. Compare absolute X and Z
+components, choose the dominant axis, and keep its sign.
 
 **Read:** [R5] and `REPORT.md`, section 10.
 
-**Self-check:** Test near 0°, 45°, 90°, and 180° yaw.
+**Self-check:** Test near 0°, 45°, 90°, 135°, and 180° yaw and describe the tie
+policy you selected.
 
-## Checkpoint 24 — Vertical navigation at steep pitch
+## Checkpoint 23 — Pitch-aware vertical navigation
 
-**Challenge:** Allow forward/back to traverse field Y when the camera looks
-steeply downward or upward.
+**Challenge:** When the camera looks steeply upward or downward, allow the same
+forward/back intent to traverse cube layers along field Y.
 
-**Visible finish:** Near-horizontal views navigate the XZ plane; steep views
-move between cube layers in the direction that feels screen-relative.
+**Visible finish:** Shallow pitch navigates the XZ plane. Steep pitch moves
+between Y layers in the direction that feels visually forward/back.
 
-**Reflect after:** What threshold makes vertical intent dominant? How should
-looking up versus down affect the sign?
+**Reflect after:** What camera-space signal indicates vertical intent? Why is a
+threshold or dominant-component decision necessary?
 
-**Hints:** Base the decision on the camera forward vector, not raw mouse input.
+**Hints:** Use the derived camera forward vector, not mouse delta or raw pitch
+input. Compare its absolute Y component against its horizontal components.
 
 **Read:** `REPORT.md`, sections 5 and 10.
 
-**Self-check:** Test both positive and negative steep pitch near top/bottom field
-boundaries.
+**Self-check:** Test positive and negative steep pitch at both the top and bottom
+field boundaries.
 
-## Checkpoint 25 — Ray picking in the focused neighborhood
+## Checkpoint 24 — Screen-to-world ray visualization
 
-**Challenge:** While the cursor is free, convert a click into a world ray and
-select the nearest intersected local cube.
+**Challenge:** While the cursor is free, call Raylib's screen-to-world ray API
+and draw the resulting ray into the scene without selecting anything yet.
+
+**Visible finish:** A line begins at the camera and passes through the mouse's
+screen position into the 3D scene. Moving the cursor changes its direction while
+the camera remains still.
+
+**Reflect after:** How does one 2D pixel describe an infinite 3D ray rather than a
+single world point? Which camera projection data is required to unproject it?
+
+**Hints:** Use `GetScreenToWorldRay()` or the exact equivalent exposed by the
+vendored header. Draw only a finite segment for inspection.
+
+**Read:** [R3] and local `vendor/raylib/examples/core/core_3d_picking.c`.
+
+**Self-check:** Point at the selected cube's center and at empty background;
+explain why both produce valid rays.
+
+## Checkpoint 25 — Nearest-hit focused picking
+
+**Challenge:** Test the click ray against axis-aligned cube bounding boxes in the
+same focused neighborhood used for drawing, then select the nearest hit.
 
 **Visible finish:** Right-click releases the cursor; left-clicking a visible cube
 snaps the target to exactly that cube and recaptures the cursor.
@@ -653,8 +663,9 @@ snaps the target to exactly that cube and recaptures the cursor.
 **Reflect after:** Why must all candidates be tested before selecting? What does
 collision distance solve when boxes overlap on screen?
 
-**Hints:** Test only the same local candidates used by drawing. Derive each
-bounding box from center and half-size.
+**Hints:** `GetRayCollisionBox()` reports both `hit` and `distance`. Test every
+candidate before committing selection; a later candidate can be closer. On a
+successful click, recapture the cursor and suppress the first mouse delta.
 
 **Read:** [R3], [R7], and local
 `vendor/raylib/examples/core/core_3d_picking.c`.
@@ -673,18 +684,20 @@ Commit a short screen recording or screenshot alongside your notes if useful.
 
 This phase teaches face-local coordinate systems and camera-facing annotation.
 
-## Checkpoint 26 — Canonical axis-direction metadata
+## Checkpoint 26 — Face normals and local coordinate frames
 
-**Challenge:** Define one table for ±X, ±Y, and ±Z containing normal, face-local
-right/down vectors, axis identity, and short label.
+**Challenge:** Define the six cube faces using outward normal, face-local right
+and down vectors, axis identity, and short label. Draw each normal and a small
+right/down cross on the selected cube.
 
 **Visible finish:** The selected cube draws six small colored normal lines or
 face markers, each labeled in the 2D overlay.
 
-**Reflect after:** Why should rendering, text, compass, and edge orientation share
-one direction definition? What must direction zero contain?
+**Reflect after:** How do a normal and two tangent vectors define a 2D coordinate
+system embedded in 3D? Which cross-product order gives the expected handedness?
 
-**Hints:** Verify one face at a time. Use the right-hand rule consistently.
+**Hints:** Verify one face at a time. Stand mentally outside the face and check
+whether local right/down would produce readable rather than mirrored text.
 
 **Read:** `REPORT.md`, sections 12.5–12.7.
 
@@ -693,17 +706,18 @@ consistently rather than mirror it.
 
 ## Checkpoint 27 — Persistent font resources
 
-**Challenge:** Load the supplied Fira Code font during initialization and unload
-it during shutdown.
+**Challenge:** Load the supplied Fira Code font once before the frame loop, use it
+for the existing overlay, and unload it after the loop.
 
 **Visible finish:** Replace the default overlay font with the loaded font and
 show an ownership/resource-ready diagnostic.
 
-**Reflect after:** Why is font loading startup work? How does partial
-initialization affect shutdown?
+**Reflect after:** Which parts of a `Font` live in CPU memory and which become a
+texture consumed by rendering? Why would loading or rasterizing it every frame
+be wasteful?
 
-**Hints:** Keep Raylib-owned resources in one zero-initializable SDK bundle with
-explicit ownership flags.
+**Hints:** Study `LoadFontEx()`, `IsFontValid()`, `DrawTextEx()`, and
+`UnloadFont()`. A local variable in `main.cpp` is completely acceptable.
 
 **Read:** [R1], [R2], and `REPORT.md`, sections 9.1 and 12.6.
 
@@ -750,19 +764,20 @@ separate text cost from cube geometry cost.
 **Self-check:** Verify labeled-face and glyph counts drop when looking from
 another side; record the optimized-build timing difference with text disabled.
 
-## Checkpoint 30 — One compass arrow primitive
+## Checkpoint 30 — One compass arrow from 3D primitives
 
-**Challenge:** Create an SDK arrow from a shaft and arrowhead, independent of
-cube-field knowledge.
+**Challenge:** Draw one +X arrow from a cylinder shaft and cone arrowhead using
+Raylib's 3D primitive functions.
 
 **Visible finish:** A clearly proportioned +X arrow extends from the selected
 cube.
 
-**Reflect after:** What inputs make the primitive reusable at both local and
-field scale? Which vector should be normalized?
+**Reflect after:** How do two endpoints define direction, length, and midpoint?
+Which calculations require a normalized direction and which require real length?
 
 **Hints:** Raylib's cylinder-between-points operation can represent both a
-cylinder and a cone.
+cylinder and a cone. Start directly in the draw loop; extract a helper only when
+drawing the other five arrows would duplicate the same geometry math.
 
 **Read:** The 3D shapes section of [R1].
 
@@ -780,8 +795,8 @@ the selected cube face.
 **Reflect after:** Which dimensions are view configuration versus direction data?
 Why should positive and negative directions share an axis color?
 
-**Hints:** Let the app choose placement/scale and the SDK choose primitive
-emission.
+**Hints:** Reuse the same arrow math with different start/end points and colors.
+No module boundary is required.
 
 **Read:** `REPORT.md`, section 12.7.
 
@@ -850,127 +865,153 @@ clean naming and explain the boundary between app decisions and SDK primitives.
 
 ---
 
-# Phase 6 — Explicit ownership and immediate rendering
+# Phase 6 — The software graphics pipeline and CPU performance
 
-This phase revises memory and interfaces while preserving the local scene.
+This phase turns familiar draw calls into observable pipeline behavior. It also
+connects cache locality and working-set size to the much larger cost of CPU
+rasterization.
 
-## Checkpoint 35 — Immediate draw packets
+## Checkpoint 35 — Prove the renderer is immediate-mode
 
-**Challenge:** Express reusable SDK operations as compact value draw structs
-consumed synchronously by free functions.
+**Challenge:** Add controls that omit cube fills, edges, text, and annotations
+from individual frames while leaving their source data untouched. Also make one
+known cube blink by intentionally skipping its draw call on alternating periods.
 
-**Visible finish:** The local scene remains unchanged; the overlay reports the
-number of immediate cube/face/text/arrow/grid submissions.
+**Visible finish:** Any omitted feature disappears immediately and returns when
+submitted again; Raylib retains no application cube scene between frames. The
+overlay reports submission counts for each enabled feature.
 
-**Reflect after:** Which values completely describe one draw? What would make the
-SDK accidentally retained-mode? Which data belongs to the app instead?
+**Reflect after:** What persists across frames: cube values, camera state, font
+resources, or draw submissions? Why can a transient command list still belong to
+an immediate-mode renderer?
 
-**Hints:** A draw function must not store packet pointers after return. Dense
-arrays may still be passed as pointer plus count.
+**Hints:** Toggle branches around existing draw calls. Do not create packets or a
+renderer abstraction merely to demonstrate the concept.
 
-**Read:** `REPORT.md`, section 12.1.
+**Read:** `REPORT.md`, sections 3.1, 7, and 12.1.
 
-**Self-check:** Every draw packet can be stack-allocated and discarded
-immediately after the call.
+**Self-check:** Pause camera input and skip a draw for one frame; nothing from the
+previous frame should remain after `ClearBackground()`.
 
-## Checkpoint 36 — Render data versus frame data
+## Checkpoint 36 — Explicit faces, winding, and back-face culling
 
-**Challenge:** Separate persistent render resources/data from a value-only
-snapshot of camera, selected handle, and view mode.
+**Challenge:** Replace one diagnostic cube with six explicit quad faces, then
+toggle face culling and deliberately reverse one face's vertex order.
 
-**Visible finish:** Rendering and picking agree on the same camera; an overlay
-shows a monotonically increasing frame number from orchestration, not retained
-renderer state.
+**Visible finish:** Correctly wound outward faces remain visible from outside.
+The reversed face disappears or behaves oppositely when culling is enabled, and
+the overlay identifies which mode is active.
 
-**Reflect after:** Which data changes every frame? Which data is immutable? Why
-should the renderer not own the view controller?
+**Reflect after:** How does vertex order define a front face? How are geometric
+normal, winding, and the face-local basis related but not identical?
 
-**Hints:** Have the app compose a frame packet after update and before drawing.
+**Hints:** Use `rlBegin(RL_QUADS)` or triangles through `rlgl` in project-owned
+code. Change one variable at a time: first explicit geometry, then culling, then
+winding.
 
-**Read:** `REPORT.md`, sections 6.3 and 7.
+**Read:** Raylib's `rlgl.h`, `REPORT.md` sections 3.3–3.5, and [R13] for later
+depth-fighting context.
 
-**Self-check:** Renderer code should not poll input or mutate selection.
+**Self-check:** Inspect all six faces from outside and inside with culling both
+enabled and disabled.
 
-## Checkpoint 37 — A caller-supplied allocator interface
+## Checkpoint 37 — Depth testing versus submission order
 
-**Challenge:** Define a small allocation interface carrying context and aligned
-allocate/release callbacks; make zero state inert.
+**Challenge:** Draw two overlapping opaque cubes with strongly different colors,
+toggle depth testing, and reverse their submission order.
 
-**Visible finish:** The app still runs, and a startup/overlay diagnostic confirms
-the allocator is valid and reports persistent bytes acquired.
+**Visible finish:** With depth testing enabled, the nearest surfaces win
+regardless of submission order. With it disabled, later submitted fragments win
+where geometry overlaps.
 
-**Reflect after:** Why pass size and alignment to release? Why is callback
-indirection acceptable at ownership boundaries but not per cube?
+**Reflect after:** What information does the depth buffer store per pixel? What is
+the difference between testing depth and writing depth?
 
-**Hints:** Build a default aligned-heap adapter first. Keep allocation policy out
-of cube-field functions.
+**Hints:** Use fixed test geometry before applying conclusions to the full field.
+The experiment is the feature; remove or disable it after recording the result.
 
-**Read:** `REPORT.md`, sections 9.1 and 9.2, plus [R8].
+**Read:** [R10] and `REPORT.md`, sections 3.6 and 12.4.
 
-**Self-check:** A zero allocator returns no memory and release does nothing.
+**Self-check:** Predict the resulting visible color for both draw orders and both
+depth modes before toggling them.
 
-## Checkpoint 38 — Persistent immutable cube data
+## Checkpoint 38 — Projection and clipping planes
 
-**Challenge:** Allocate the value array through the supplied persistent
-allocator, align it to a cache-line boundary, generate once, and release through
-the same policy.
+**Challenge:** Add a diagnostic mode that switches between perspective and
+orthographic projection and allows controlled near/far clip-plane changes while
+drawing known objects at measured distances.
 
-**Visible finish:** The local field looks identical; the overlay reports value
-capacity, approximate MiB, and alignment.
+**Visible finish:** Perspective makes distant objects appear smaller;
+orthographic projection preserves apparent size. Tight near/far planes visibly
+slice geometry, and the overlay reports projection and clip distances.
 
-**Reflect after:** Why does capacity include the stub? Why does aligned storage not
-justify scanning the entire dataset each frame?
+**Reflect after:** How are camera space, clip space, perspective division, and the
+depth range connected? Why can a distant birds-eye camera require a very
+different far plane?
 
-**Hints:** Allocation and generation belong at initialization, not rendering.
-Use assertions or diagnostics to inspect address alignment.
+**Hints:** Reuse the existing camera and use `rlSetClipPlanes()` only in
+project-owned code. Restore normal clip values after the experiment each frame.
 
-**Read:** [R8], [R9], and `REPORT.md`, sections 8.5 and 9.
+**Read:** `rlgl.h`, [R10], and `REPORT.md`, sections 3.3 and 3.8.
 
-**Self-check:** Invalid handles still resolve safely after the ownership change.
+**Self-check:** Place one object before the near plane, one inside the frustum,
+and one beyond the far plane, then explain which vertices survive clipping.
 
-## Checkpoint 39 — A non-owning frame arena
+## Checkpoint 39 — Cache lines and traversal locality
 
-**Challenge:** Bind a linear arena to caller-owned memory, support aligned
-allocation, expose it through `Allocator`, and reset it after each frame.
+**Challenge:** Increase only the semantic value buffer to the final
+`500 × 1000 × 100` logical dimensions while continuing to draw the bounded local
+region. Add an on-demand CPU experiment that reads the same values once in
+X-contiguous order and once in a deliberately strided order, producing identical
+checksums and reporting elapsed time.
 
-**Visible finish:** Allocate a small per-frame diagnostic buffer from the arena;
-display used bytes and preserved high-water mark while the scene runs.
+**Visible finish:** The scene remains responsive because only the focused region
+is submitted. A key-triggered diagnostic reports roughly 50 million value bytes,
+the working-set size in MiB, and timings for sequential versus strided traversal.
 
-**Reflect after:** What pointer lifetimes end at reset? Why should individual arena
-release be a no-op? What overflow checks does alignment rounding require?
+**Reflect after:** How many one-byte values fit in a typical 64-byte cache line?
+What roles do L1, L2, L3, hardware prefetch, and main-memory bandwidth play?
+Why does loop order matter when X is the contiguous dimension?
 
-**Hints:** The arena should never acquire its own backing memory and should never
-fall back to the heap.
+**Hints:** Run the experiment outside drawing and only on request; do not scan 50
+million cubes every frame. Accumulate into a checksum so the compiler cannot
+delete the reads. Repeat enough times to distinguish noise, then report medians
+or the clearest stable observation rather than claiming a universal benchmark.
 
-**Read:** `REPORT.md`, section 9.3.
+**Read:** [R9] and `REPORT.md`, sections 8.5 and 13.
 
-**Self-check:** Deliberately request too much and observe a controlled failure,
-then restore capacity.
+**Self-check:** Both traversals must produce the same checksum. Record build type,
+machine, traversal order, and working-set size with the timing.
 
-## Checkpoint 40 — Query frame memory before startup
+## Checkpoint 40 — Measure software-rasterization cost
 
-**Challenge:** Let the renderer calculate its worst-case temporary command
-capacity from public configuration before the application allocates its arena.
+**Challenge:** In a clean `RelWithDebInfo` build, measure focused-view performance
+with fills, edges, face text, compasses, and grids toggled independently. Report
+candidate cubes, submitted cubes/faces/lines/glyphs, and frame time or FPS.
 
-**Visible finish:** Startup displays required scratch bytes; per-frame high-water
-use stays within that bound.
+**Visible finish:** The overlay makes it clear which visible feature consumes
+time. The normal focused configuration remains at least 30 FPS, targeting 60,
+without scanning the entire logical field.
 
-**Reflect after:** What focused and birds-eye workloads determine the maximum?
-Which arithmetic products can overflow before conversion to `size_t`?
+**Reflect after:** Which costs came from cache/memory access, CPU geometry setup,
+glyph submission, overdraw, and pixel rasterization? Why is drawing less usually
+more valuable than shaving arithmetic from a tiny loop?
 
-**Hints:** Requirement functions describe memory but do not allocate it. The
-composition root chooses backing storage.
+**Hints:** Change one feature at a time and keep camera position fixed while
+comparing. Use `tools\build-performance.ps1 -App src -BuildType RelWithDebInfo`;
+Debug FPS is not evidence.
 
-**Read:** `REPORT.md`, sections 7, 9, and 13.
+**Read:** `REPORT.md`, sections 3.5, 8.5, 13, and 14.
 
-**Self-check:** Increasing focused radius increases the query predictably or is
-rejected safely.
+**Self-check:** Record a small table of feature combinations and measurements.
+Keep optimizations only when the counters and timings support the explanation.
 
 ### Phase 6 gate
 
-Draw a lifetime diagram showing persistent allocator, arena backing, frame
-allocations, Raylib-owned resources, and stack packets. Review it with me before
-starting transparency.
+Before transparency, explain one frame from semantic value load through style
+lookup, vertex submission, clipping, rasterization, depth testing, and final
+pixel color. Also explain why the bounded X-contiguous local loop has a much
+smaller working set than the 50-million-byte source buffer.
 
 ---
 
@@ -1010,7 +1051,8 @@ rest remains opaque.
 reissued? Why is a six-quad application workaround acceptable here?
 
 **Hints:** Inspect the local `rlsw` behavior only to understand the contract;
-keep the fix in project-owned SDK rendering code.
+keep the fix in project-owned code. A small face-emission helper is useful if it
+keeps all six faces consistent, but no module extraction is required.
 
 **Read:** `REPORT.md`, sections 12.4 and 14, and local
 `vendor/raylib/src/external/rlsw.h` as a diagnostic reference.
@@ -1019,26 +1061,29 @@ keep the fix in project-owned SDK rendering code.
 
 ## Checkpoint 43 — Back-to-front transparent commands
 
-**Challenge:** Collect transparent face commands in frame memory, assign camera
-depth, sort far-to-near, and submit after opaque fills with depth writes off.
+**Challenge:** Collect transparent face commands into one contiguous
+fixed-capacity scratch array, assign camera depth, sort far-to-near, and submit
+after opaque fills with depth writes disabled.
 
 **Visible finish:** Overlapping transparent cubes blend consistently while
 opaque cubes still occlude them correctly. Diagnostics report opaque faces,
-transparent faces, sort work, frame-arena bytes used, and arena high-water use.
+transparent faces, command bytes, and sort work.
 
-**Reflect after:** Why is the command array still immediate-mode? Why sort faces
-rather than cube centers? Why retain depth testing but disable depth writes?
+**Reflect after:** Why is the command array still immediate-mode even if its
+backing allocation persists? Why sort faces rather than cube centers? Why retain
+depth testing but disable depth writes? How does contiguous command storage help
+cache traversal during sorting and submission?
 
-**Hints:** Use an in-place algorithm over the arena array; no STL container or
-second command buffer is needed. Measure the transparent pass in
-`RelWithDebInfo`, and distinguish command collection/sorting cost from
-rasterization cost before changing either algorithm.
+**Hints:** Regenerate commands and reset the count every frame. The bounded local
+radius gives a calculable maximum face count, so a caller-owned scratch block or
+fixed array is enough; an arena allocator is not part of this course. Use an
+in-place sort and distinguish collection/sorting cost from rasterization cost.
 
 **Read:** [R10], [R11], [R12], and `REPORT.md`, section 12.4.
 
 **Self-check:** Render a controlled near/far pair whose expected color layering
-you can explain, then verify the reported arena use stays within the queried
-startup requirement at the maximum focused workload.
+you can explain, then verify command count never exceeds the capacity derived
+from the maximum focused workload.
 
 ### Phase 7 gate
 
@@ -1053,8 +1098,8 @@ This phase introduces a second representation of the same source data.
 
 ## Checkpoint 44 — A second camera mode
 
-**Challenge:** Add birds-eye mode toggled by `G`, with its own orbit/zoom preset
-and a target at field center.
+**Challenge:** Add birds-eye mode toggled by `G`, with its own orbit/zoom preset,
+a target at field center, and clip planes derived for the field's scale.
 
 **Visible finish:** `G` switches between focused cubes and a distant view of a
 wireframe field-bounds box; camera rotation and wheel zoom work in both.
@@ -1166,47 +1211,44 @@ time.
 **Self-check:** Use contrasting palette edge colors and examine every corner
 while stationary.
 
-## Checkpoint 50 — Field-scale compass and final integration
+## Checkpoint 50 — Field-scale compass and final graphics integration
 
-**Challenge:** Add the large birds-eye compass, switch to the final
-`500 × 1000 × 100` field, validate performance in a clean `RelWithDebInfo`
-build, and complete the nonvisual regression suite for the core invariants
-accumulated throughout the curriculum.
+**Challenge:** Add the large birds-eye compass and its readable billboard labels,
+complete the final `500 × 1000 × 100` focused/birds-eye experience, and validate
+software-rendering performance in a clean `RelWithDebInfo` build.
 
 **Visible finish:** The complete application matches the reference behavior:
 focused and birds-eye views, navigation, picking, palettes, transparency, text,
 compasses, boundary grids, and 30+ FPS software rendering.
 
 **Reflect after:** Which visual features scale with selected cube, virtual shell,
-camera distance, or screen resolution? Which mathematical rules deserve tests?
-Where is the actual frame time spent?
+camera distance, or screen resolution? Which coordinate-space or pipeline
+misunderstandings caused the hardest bugs? Where is actual frame time spent?
 
-**Hints:** Extend the tests introduced at Checkpoint 17 with arena
-alignment/exhaustion/reset/high-water behavior, sampling endpoints, region
-clipping, scratch requirements, draw/pick source identity, and steep-pitch
-navigation. Profile before changing algorithms. Report focused and birds-eye
-frame times alongside candidate, submitted, face, glyph, transparent-command,
-and arena counters so a result can be reproduced.
+**Hints:** Center one compass on each outer field face, scale it from field
+extents, use white billboard text, and suppress labels when their anchor belongs
+behind the field. Profile before changing algorithms. Report focused and
+birds-eye frame times alongside candidate, submitted, face, glyph, and
+transparent-command counters so a result can be reproduced.
 
 **Read:** `REPORT.md`, sections 13–20, [R9], and [R14].
 
-**Self-check:** Run all controls, CTest, a clean optimized build,
-`tools\verify-repo.ps1 -CleanFirst -RunFormatCheck`, and the isolated performance
-build. Verify 30+ FPS in both modes, record the machine/build/backend and
-counters used for the claim, compare interfaces and behavior with `reference/`,
-then write down where your design intentionally differs.
+**Self-check:** Run all controls and the isolated optimized performance build.
+Verify 30+ FPS in both modes, record the machine/build/backend and counters used
+for the claim, and compare visible behavior with `reference/`. Source structure
+may differ completely.
 
 ### Final gate
 
-You are finished when you can rebuild the architecture from your own reasoning,
-not when your source is textually identical to `reference/`.
+You are finished when you can rebuild the graphics behavior from your own
+reasoning, not when your source or architecture resembles `reference/`.
 
 Prepare a short retrospective answering:
 
 1. Which performance wins came from drawing less rather than drawing faster?
 2. Which bugs were really coordinate-space misunderstandings?
-3. Which interfaces made ownership easier to reason about?
-4. What did zero stubs and handles simplify?
+3. Which bugs came from depth, blending, winding, clipping, or draw ordering?
+4. How did memory layout and bounded working sets affect CPU behavior?
 5. Why is the renderer immediate-mode even though it temporarily sorts commands?
 6. Where would a GPU version differ, and where would application logic remain
    the same?
@@ -1337,30 +1379,30 @@ links here instead of duplicating checkpoint history.
 | 14 | Cube values | complete | | Build/review passed; one-byte immutable A/B/C/D values use one-based handles with a zero stub. |
 | 15 | Deterministic generation | complete | | Build/review passed; startup coordinate hashing produces immutable reproducible A/B/C/D values without storage-order striping. |
 | 16 | Palettes and edges | complete | | Build/review passed; three one-based palettes map immutable values to adjacent fill/edge styles and switch immediately with keys 1/2/3. |
-| 17 | Proven-boundary refactor | working | | Substep A active: extract the proven pure cube-field rules while preserving behavior. |
-| 18 | Selected cube | not started | | |
-| 19 | Focused region | not started | | |
-| 20 | Radius culling | not started | | |
-| 21 | Input snapshot | not started | | |
-| 22 | World navigation | not started | | |
-| 23 | Camera navigation | not started | | |
-| 24 | Vertical navigation | not started | | |
+| 17 | Selected target | working | | Persistent selection drives the orbit target; graphics-first curriculum begins here. |
+| 18 | Focused bounds | not started | | |
+| 19 | Radius culling | not started | | |
+| 20 | Discrete navigation events | not started | | |
+| 21 | Camera basis visualization | not started | | |
+| 22 | Camera-relative navigation | not started | | |
+| 23 | Vertical navigation | not started | | |
+| 24 | Screen-to-world ray | not started | | |
 | 25 | Focused picking | not started | | |
-| 26 | Direction metadata | not started | | |
+| 26 | Face coordinate frames | not started | | |
 | 27 | Font resources | not started | | |
 | 28 | One face label | not started | | |
 | 29 | Local face text | not started | | |
-| 30 | Arrow primitive | not started | | |
+| 30 | Arrow geometry | not started | | |
 | 31 | Six compass arrows | not started | | |
 | 32 | Billboard labels | not started | | |
 | 33 | Shaft gaps | not started | | |
 | 34 | Boundary grids | not started | | |
-| 35 | Immediate draw packets | not started | | |
-| 36 | Render/frame data | not started | | |
-| 37 | Allocator interface | not started | | |
-| 38 | Persistent cube data | not started | | |
-| 39 | Frame arena | not started | | |
-| 40 | Memory requirements | not started | | |
+| 35 | Immediate-mode experiment | not started | | |
+| 36 | Winding and culling | not started | | |
+| 37 | Depth testing | not started | | |
+| 38 | Projection and clipping | not started | | |
+| 39 | Cache locality | not started | | |
+| 40 | Rasterization measurement | not started | | |
 | 41 | Observe transparency | not started | | |
 | 42 | Six-face transparency | not started | | |
 | 43 | Transparent ordering | not started | | |
@@ -1370,7 +1412,7 @@ links here instead of duplicating checkpoint history.
 | 47 | Representative geometry | not started | | |
 | 48 | Birds-eye values/picking | not started | | |
 | 49 | Outward faces/edges | not started | | |
-| 50 | Final integration | not started | | |
+| 50 | Final graphics integration | not started | | |
 
 ## Resuming the curriculum
 
