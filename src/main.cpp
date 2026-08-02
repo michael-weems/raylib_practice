@@ -11,27 +11,59 @@
 #include <iostream>
 #include <cmath>
 
-int MAX_X{ 5 };
-int MAX_Y{ 7 };
-int MAX_Z{ 8 };
+// Modern C++ using syntax (Recommended)
+using i8  = int8_t;
+using i16 = int16_t;
+using i32 = int32_t;
+using i64 = int64_t;
+
+using u8  = uint8_t;
+using u16 = uint16_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
+
+using f32 = float;
+using f64 = double;
+
+f32 X_MIN{ -0.5f };
+f32 X_MAX{  0.5f };
+f32 X_STEP{ 0.5f };
+u32 X_STEP_COUNT{ 3 };
+
+f32 Y_MIN{ -0.5f };
+f32 Y_MAX{  0.5f };
+f32 Y_STEP{ 0.5f };
+u32 Y_STEP_COUNT{ 3 };
+
+f32 Z_MIN{ -0.5f };
+f32 Z_MAX{  0.5f };
+f32 Z_STEP{ 0.5f };
+u32 Z_STEP_COUNT{ 3 };
+
 Vector3 CUBE_SIZE{ 2, 2, 2 };
-float CUBE_SPACING{ 5.0f };
+f32 CUBE_SPACING{ 5.0f };
 
-struct Coord {
-   int x;
-   int y;
-   int z;
+struct Cube_Index {
+   u32 x;
+   u32 y;
+   u32 z;
 };
-struct Dim {
-   int x;
-   int y;
-   int z;
+struct Cube_Count {
+   u32 x;
+   u32 y;
+   u32 z;
 };
-struct Handle {
-   uint32_t id;
+struct Cube_Handle {
+   u32 id;
 };
 
-enum Value : std::uint8_t {
+struct Cube_Position {
+   f32 x;
+   f32 y;
+   f32 z;
+};
+
+enum Value : u32 {
    VALUE_NONE = 0,
    VALUE_A,
    VALUE_B,
@@ -44,53 +76,77 @@ struct Cube_Styling {
    Color fill_color;
    Color wire_color;
 };
-struct Palette {
+struct Cube_Palette {
    Cube_Styling styles[VALUE_COUNT];
 };
-struct Palette_Handle {
-   uint32_t id;
+struct Cube_Palette_Handle {
+   u32 id;
 };
 
-Dim MAX_DIM{ MAX_X, MAX_Y, MAX_Z };
+Cube_Count CUBE_COUNT{ X_STEP_COUNT, Y_STEP_COUNT, Z_STEP_COUNT };
 
-const int PALETTE_1{ 1 };
-const int PALETTE_2{ 2 };
-const int PALETTE_3{ 3 };
+const u32 PALETTE_1{ 1 };
+const u32 PALETTE_2{ 2 };
+const u32 PALETTE_3{ 3 };
 
-static Handle max_handle(Dim dim) {
-   return Handle{ static_cast<uint32_t>(dim.x * dim.y * dim.z) };
+static Cube_Handle max_handle(Cube_Count c) {
+   return Cube_Handle{ static_cast<u32>(c.x * c.y * c.z) };
 }
 
 // grid-coordinates to handle
-static Handle get_handle(Coord coords, Dim widths) {
-   if (coords.x < 0 || coords.x >= widths.x) return Handle{ 0 };
-   if (coords.y < 0 || coords.y >= widths.y) return Handle{ 0 };
-   if (coords.z < 0 || coords.z >= widths.z) return Handle{ 0 };
+static Cube_Handle get_handle(Cube_Index i, Cube_Count c) {
+   if (i.x < 0 || i.x >= c.x) return Cube_Handle{ 0 };
+   if (i.y < 0 || i.y >= c.y) return Cube_Handle{ 0 };
+   if (i.z < 0 || i.z >= c.z) return Cube_Handle{ 0 };
 
-   return Handle{ static_cast<uint32_t>(coords.x + (coords.y * widths.x) + (coords.z * widths.x * widths.y)) + 1 };
+   return Cube_Handle{ static_cast<u32>(i.x + (i.y * c.x) + (i.z * c.x * c.y)) + 1 };
 }
 
 // handle to grid-coordinates
-static bool get_coordinates(Handle handle, Dim widths, Coord& out) {
+static bool get_coordinates(Cube_Handle handle, Cube_Count widths, Cube_Index& out) {
    if (handle.id == 0) return false;
    if (handle.id > max_handle(widths).id) return false;
 
-   int index{ static_cast<int>(handle.id) - 1 };
+   u32 index{ static_cast<u32>(handle.id) - 1 };
    out.z = (index / (widths.x * widths.y));
 
-   int remainder{ index % (widths.x * widths.y) };
+   u32 remainder{ index % (widths.x * widths.y) };
    out.y = remainder / widths.x;
-   out.x = remainder % static_cast<int>(widths.x);
+   out.x = remainder % static_cast<u32>(widths.x);
    
    return true;
 }
 
-static Vector3 get_world_vector3(Coord coords, Dim widths, float spacing) {
-   return Vector3{
-      spacing * (static_cast<float>(coords.x - (widths.x / 2)) + (static_cast<float>((widths.x & 1) == 0) * 0.5f)),
-      spacing * (static_cast<float>(coords.y - (widths.y / 2)) + (static_cast<float>((widths.y & 1) == 0) * 0.5f)),
-      spacing * (static_cast<float>(coords.z - (widths.z / 2)) + (static_cast<float>((widths.z & 1) == 0) * 0.5f))
+inline u32 index_of(f32 p, f32 min, f32 step) {
+   return static_cast<u32>((p - min) / step);
+}
+
+inline Cube_Index index_of(Cube_Position p) {
+   return Cube_Index{
+      index_of(p.x, X_MIN, X_STEP),
+      index_of(p.y, Y_MIN, Y_STEP),
+      index_of(p.z, Z_MIN, Z_STEP)
    };
+}
+
+inline Vector3 get_world_vector3(Cube_Position p) {
+   return Vector3{
+      CUBE_SPACING * (index_of(p.x, X_MIN, X_STEP) + (static_cast<f32>((static_cast<i32>(X_STEP_COUNT) & 1) == 0) * 0.5f)),
+      CUBE_SPACING * (index_of(p.y, Y_MIN, Y_STEP) + (static_cast<f32>((static_cast<i32>(Y_STEP_COUNT) & 1) == 0) * 0.5f)),
+      CUBE_SPACING * (index_of(p.z, Z_MIN, Z_STEP) + (static_cast<f32>((static_cast<i32>(Z_STEP_COUNT) & 1) == 0) * 0.5f))
+   };
+}
+
+inline Vector3 get_world_vector3(Cube_Index coords, Cube_Count widths, f32 spacing) {
+   return Vector3{
+      spacing * (static_cast<f32>(coords.x - (widths.x / 2)) + (static_cast<f32>((widths.x & 1) == 0) * 0.5f)),
+      spacing * (static_cast<f32>(coords.y - (widths.y / 2)) + (static_cast<f32>((widths.y & 1) == 0) * 0.5f)),
+      spacing * (static_cast<f32>(coords.z - (widths.z / 2)) + (static_cast<f32>((widths.z & 1) == 0) * 0.5f))
+   };
+}
+
+inline Cube_Handle get_handle(Cube_Position p) {
+   return Cube_Handle{ static_cast<u32>(index_of(p.y, X_MIN, X_STEP) + (index_of(p.y, Y_MIN, Y_STEP) * X_STEP_COUNT) + (index_of(p.z, Z_MIN, Z_STEP) * X_STEP_COUNT * Y_STEP_COUNT)) };
 }
 
 static const char * get_value_string(Value v) {
@@ -103,7 +159,7 @@ static const char * get_value_string(Value v) {
    }
 }
 
-static uint32_t hash32(uint32_t a) {
+static u32 hash32(u32 a) {
     a = (a ^ 61) ^ (a >> 16);
     a = a + (a << 3);
     a = a ^ (a >> 4);
@@ -112,12 +168,12 @@ static uint32_t hash32(uint32_t a) {
     return a;
 }
 
-static std::uint32_t hash_coord(Coord coordinate) {
-   std::uint32_t mixed_coordinate = 0x9E3779B9u;
+static u32 hash_coord(Cube_Index coordinate) {
+   u32 mixed_coordinate = 0x9E3779B9u;
 
-   mixed_coordinate ^= static_cast<std::uint32_t>(coordinate.x) * 0x85EBCA6Bu;
-   mixed_coordinate ^= static_cast<std::uint32_t>(coordinate.y) * 0xC2B2AE35u;
-   mixed_coordinate ^= static_cast<std::uint32_t>(coordinate.z) * 0x27D4EB2Fu;
+   mixed_coordinate ^= static_cast<u32>(coordinate.x) * 0x85EBCA6Bu;
+   mixed_coordinate ^= static_cast<u32>(coordinate.y) * 0xC2B2AE35u;
+   mixed_coordinate ^= static_cast<u32>(coordinate.z) * 0x27D4EB2Fu;
 
    return hash32(mixed_coordinate);
 }
@@ -128,8 +184,8 @@ enum Test_Handles {
    TEST_HANDLE_TWO
 };
 
-int main() { 
-   Handle largest_handle{ max_handle(MAX_DIM) };
+i32 main() { 
+   Cube_Handle largest_handle{ max_handle(CUBE_COUNT) };
 
    Value* values = static_cast<Value*>(std::malloc((largest_handle.id + 1) * sizeof(Value)));
    if (values == nullptr) {
@@ -138,17 +194,17 @@ int main() {
    }
 
    values[0] = VALUE_NONE;
-   for (int z{ 0 }; z < MAX_Z; ++z) {
-      for (int y{ 0 }; y < MAX_Y; ++y) {
-         for (int x{ 0 }; x < MAX_X; ++x) {
-            Coord coord{ x, y, z };
-            Handle handle{ get_handle(coord, MAX_DIM) };
+   for (f32 z{ Z_MIN }; z < Z_MAX; z+=Z_STEP) {
+      for (f32 y{ Y_MIN }; y < Y_MAX; y+=Y_STEP) {
+         for (f32 x{ X_MIN }; x < X_MAX; x+=X_STEP) {
+            Cube_Index coord{ index_of({x, y, z}) };
+            Cube_Handle handle{ get_handle(coord, CUBE_COUNT) };
             values[handle.id] = static_cast<Value>((hash_coord(coord) & 3u) + 1u);
          }
       }
    }
 
-   Palette palettes[4] = { };
+   Cube_Palette palettes[4] = { };
    palettes[1].styles[VALUE_A] = {BLUE, RAYWHITE};
    palettes[1].styles[VALUE_B] = {RED, RAYWHITE};
    palettes[1].styles[VALUE_C] = {GREEN, RAYWHITE};
@@ -167,7 +223,7 @@ int main() {
    sdk::Runtime_Config config = {};
    sdk::Runtime_State runtime = {};
 
-   config.title = "checkpoint 5";
+   config.title = "yaboi";
 
    sdk::Runtime_Result result = sdk::runtime_init(runtime, config);
    if (result != sdk::RUNTIME_SUCCESS) {
@@ -212,19 +268,19 @@ int main() {
 
    auto startup_time = std::chrono::steady_clock::now();
 
-   float text_x = 0.0f;
-   float text_y = 0.0f;
-   int font_size = 16;
+   f32 text_x = 0.0f;
+   f32 text_y = 0.0f;
+   i32 font_size = 16;
 
-   Palette_Handle palette{ 1 };
+   Cube_Palette_Handle palette{ 1 };
 
-   Coord selected{};
-   Handle selected_handle = get_handle(selected, MAX_DIM);
+   Cube_Index selected{};
+   Cube_Handle selected_handle = get_handle(selected, CUBE_COUNT);
 
-   Coord test1{3,3,3};
-   Coord test2{3,3,4};
+   Cube_Index test1{1,1,1};
+   Cube_Index test2{1,1,0};
 
-   Coord test_cache = selected;
+   Cube_Index test_cache = selected;
 
    Test_Handles active_handle{ ACTUAL_SELECTED };
 
@@ -233,7 +289,7 @@ int main() {
       auto diff = frame_time - startup_time;
       double total_time = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() / 1000.0;
 
-      float dt = GetFrameTime();
+      f32 dt = GetFrameTime();
 
       if (IsKeyPressed(KEY_ONE))   palette.id = PALETTE_1;
       if (IsKeyPressed(KEY_TWO))   palette.id = PALETTE_2;
@@ -260,16 +316,16 @@ int main() {
       text_x += dt * 20.0f;
       text_y += dt * 20.0f;
 
-      if ((int)text_x >= config.screen_width) text_x = 0.0f;
-      if ((int)text_y >= config.screen_height) text_y = 0.0f;
+      if ((i32)text_x >= config.screen_width) text_x = 0.0f;
+      if ((i32)text_y >= config.screen_height) text_y = 0.0f;
 
-      selected_handle = get_handle(selected, MAX_DIM);
+      selected_handle = get_handle(selected, CUBE_COUNT);
 
-      Coord c = {};
-      bool is_selected_valid{ get_coordinates(selected_handle, MAX_DIM, c) };
+      Cube_Index c = {};
+      bool is_selected_valid{ get_coordinates(selected_handle, CUBE_COUNT, c) };
       Value selected_value{ VALUE_NONE };
 
-      Vector3 world_center{ get_world_vector3(c, MAX_DIM, CUBE_SPACING) };
+      Vector3 world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
       camera_state.target = world_center;
 
       sdk::Orbit_Camera_Input camera_input = {}; 
@@ -295,20 +351,21 @@ int main() {
             DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 10, 0}, RED);
             DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 0, 10}, GREEN);
 
-            const Palette& styles{ palettes[palette.id] };
+            const Cube_Palette& styles{ palettes[palette.id] };
 
-            for (int z{ 0 }; z < MAX_Z; ++z) {
-               for (int y{ 0 }; y < MAX_Y; ++y) {
-                  for (int x{ 0 }; x < MAX_X; ++x) {
+            for (f32 z{ Z_MIN }; z < Z_MAX; z+=Z_STEP) {
+               for (f32 y{ Y_MIN }; y < Y_MAX; y+=Y_STEP) {
+                  for (f32 x{ X_MIN }; x < X_MAX; x+=X_STEP) {
+
                      // 0 1 2 3 4
                      //     ^
                      // 0 1 2 3 4 5
                      //       ^
 
-                     Handle cube_handle{ get_handle(Coord{x,y,z}, MAX_DIM) };
+                     Cube_Handle cube_handle{ get_handle({x,y,z}) };
                      Value cube_value{ values[cube_handle.id] };
 
-                     Vector3 p{ get_world_vector3(Coord{x,y,z}, MAX_DIM, CUBE_SPACING) }; 
+                     Vector3 p{ get_world_vector3({x,y,z}) }; 
 
                      DrawCubeV(p, CUBE_SIZE, styles.styles[cube_value].fill_color);
                      if (is_selected_valid && selected_handle.id == cube_handle.id) {
@@ -324,11 +381,11 @@ int main() {
          EndMode3D();
 
          std::snprintf(buffer, sizeof(buffer), "seconds: %.2f", total_time);
-         DrawText(buffer, (int)text_x, (int)text_y, font_size, RAYWHITE);
+         DrawText(buffer, (i32)text_x, (i32)text_y, font_size, RAYWHITE);
 
-         int y_offset = 5;
-         int x_offset = 5;
-         int fps = GetFPS();
+         i32 y_offset = 5;
+         i32 x_offset = 5;
+         i32 fps = GetFPS();
          DrawText(TextFormat("FPS: %i", fps), x_offset, y_offset, font_size, YELLOW);
          y_offset += font_size;
          DrawText("Ya Boi", x_offset, y_offset, font_size, RAYWHITE);
