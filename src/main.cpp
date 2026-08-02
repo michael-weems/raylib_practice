@@ -122,6 +122,12 @@ static std::uint32_t hash_coord(Coord coordinate) {
    return hash32(mixed_coordinate);
 }
 
+enum Test_Handles {  
+   ACTUAL_SELECTED = 0, 
+   TEST_HANDLE_ONE,
+   TEST_HANDLE_TWO
+};
+
 int main() { 
    Handle largest_handle{ max_handle(MAX_DIM) };
 
@@ -212,12 +218,59 @@ int main() {
 
    Palette_Handle palette{ 1 };
 
+   Coord selected{};
+   Handle selected_handle = get_handle(selected, MAX_DIM);
+
+   Coord test1{3,3,3};
+   Coord test2{3,3,4};
+
+   Coord test_cache = selected;
+
+   Test_Handles active_handle{ ACTUAL_SELECTED };
+
    while (!WindowShouldClose()) {
       auto frame_time = std::chrono::steady_clock::now();
       auto diff = frame_time - startup_time;
       double total_time = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() / 1000.0;
 
       float dt = GetFrameTime();
+
+      if (IsKeyPressed(KEY_ONE))   palette.id = PALETTE_1;
+      if (IsKeyPressed(KEY_TWO))   palette.id = PALETTE_2;
+      if (IsKeyPressed(KEY_THREE)) palette.id = PALETTE_3;
+
+      if (IsKeyPressed(KEY_N)) {
+         switch (active_handle) {
+         case ACTUAL_SELECTED: 
+            test_cache = selected;
+            selected = test1;
+            active_handle = TEST_HANDLE_ONE;
+            break;
+         case TEST_HANDLE_ONE: 
+            selected = test2;
+            active_handle = TEST_HANDLE_TWO;
+            break;
+         case TEST_HANDLE_TWO: 
+            selected = test_cache;
+            active_handle = ACTUAL_SELECTED;
+            break;
+         }
+      }
+
+      text_x += dt * 20.0f;
+      text_y += dt * 20.0f;
+
+      if ((int)text_x >= config.screen_width) text_x = 0.0f;
+      if ((int)text_y >= config.screen_height) text_y = 0.0f;
+
+      selected_handle = get_handle(selected, MAX_DIM);
+
+      Coord c = {};
+      bool is_selected_valid{ get_coordinates(selected_handle, MAX_DIM, c) };
+      Value selected_value{ VALUE_NONE };
+
+      Vector3 world_center{ get_world_vector3(c, MAX_DIM, CUBE_SPACING) };
+      camera_state.target = world_center;
 
       sdk::Orbit_Camera_Input camera_input = {}; 
       camera_input.is_window_focused = IsWindowFocused();
@@ -232,22 +285,6 @@ int main() {
          std::cerr << "ERR: CAMERA UPDATE" << std::endl;
          break;
       }
-
-      if (IsKeyPressed(KEY_ONE))   palette.id = PALETTE_1;
-      if (IsKeyPressed(KEY_TWO))   palette.id = PALETTE_2;
-      if (IsKeyPressed(KEY_THREE)) palette.id = PALETTE_3;
-
-      text_x += dt * 20.0f;
-      text_y += dt * 20.0f;
-
-      if ((int)text_x >= config.screen_width) text_x = 0.0f;
-      if ((int)text_y >= config.screen_height) text_y = 0.0f;
-
-      Coord selected{1,3,4};
-      Handle selected_handle{ get_handle(selected, MAX_DIM) };
-      Coord c = {};
-      bool is_selected_valid{ get_coordinates(selected_handle, MAX_DIM, c) };
-      Value selected_value{ VALUE_NONE };
 
       BeginDrawing();
          ClearBackground(BLACK);
