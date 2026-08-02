@@ -25,20 +25,20 @@ using u64 = uint64_t;
 using f32 = float;
 using f64 = double;
 
-f32 X_MIN{ -0.5f };
-f32 X_MAX{  0.5f };
-f32 X_STEP{ 0.5f };
-u32 X_STEP_COUNT{ 3 };
+f64 X_MIN{ -0.5f };
+f64 X_MAX{  0.5f };
+f64 X_STEP{ 0.5f };
+u32 X_STEP_COUNT{ static_cast<u32>(std::llround((X_MAX - X_MIN) / X_STEP)) + 1 };
 
-f32 Y_MIN{ -0.5f };
-f32 Y_MAX{  0.5f };
-f32 Y_STEP{ 0.5f };
-u32 Y_STEP_COUNT{ 3 };
+f64 Y_MIN{ -0.5f };
+f64 Y_MAX{  0.5f };
+f64 Y_STEP{ 0.5f };
+u32 Y_STEP_COUNT{ static_cast<u32>(std::llround((Y_MAX - Y_MIN) / Y_STEP)) + 1 };
 
-f32 Z_MIN{ -0.5f };
-f32 Z_MAX{  0.5f };
-f32 Z_STEP{ 0.5f };
-u32 Z_STEP_COUNT{ 3 };
+f64 Z_MIN{ -0.5f };
+f64 Z_MAX{  0.5f };
+f64 Z_STEP{ 0.5f };
+u32 Z_STEP_COUNT{ static_cast<u32>(std::llround((Z_MAX - Z_MIN) / Z_STEP)) + 1 };
 
 Vector3 CUBE_SIZE{ 2, 2, 2 };
 f32 CUBE_SPACING{ 5.0f };
@@ -63,9 +63,8 @@ struct Cube_Position {
    f32 z;
 };
 
-enum Value : u32 {
-   VALUE_NONE = 0,
-   VALUE_A,
+enum Value : u8 {
+   VALUE_A = 0,
    VALUE_B,
    VALUE_C,
    VALUE_D,
@@ -84,30 +83,30 @@ struct Cube_Palette_Handle {
 };
 
 Cube_Count CUBE_COUNT{ X_STEP_COUNT, Y_STEP_COUNT, Z_STEP_COUNT };
+u32 CUBE_TOTAL_COUNT{ X_STEP_COUNT * Y_STEP_COUNT * Z_STEP_COUNT };
 
-const u32 PALETTE_1{ 1 };
-const u32 PALETTE_2{ 2 };
-const u32 PALETTE_3{ 3 };
+const u32 PALETTE_1{ 0 };
+const u32 PALETTE_2{ 1 };
+const u32 PALETTE_3{ 2 };
 
-static Cube_Handle max_handle(Cube_Count c) {
-   return Cube_Handle{ static_cast<u32>(c.x * c.y * c.z) };
+static Cube_Handle max_handle() {
+   return Cube_Handle{ CUBE_TOTAL_COUNT - 1 };
 }
 
 // grid-coordinates to handle
 static Cube_Handle get_handle(Cube_Index i, Cube_Count c) {
-   if (i.x < 0 || i.x >= c.x) return Cube_Handle{ 0 };
-   if (i.y < 0 || i.y >= c.y) return Cube_Handle{ 0 };
-   if (i.z < 0 || i.z >= c.z) return Cube_Handle{ 0 };
+   if (i.x >= c.x) return Cube_Handle{ 0 };
+   if (i.y >= c.y) return Cube_Handle{ 0 };
+   if (i.z >= c.z) return Cube_Handle{ 0 };
 
-   return Cube_Handle{ static_cast<u32>(i.x + (i.y * c.x) + (i.z * c.x * c.y)) + 1 };
+   return Cube_Handle{ static_cast<u32>(i.x + (i.y * c.x) + (i.z * c.x * c.y)) };
 }
 
 // handle to grid-coordinates
 static bool get_coordinates(Cube_Handle handle, Cube_Count widths, Cube_Index& out) {
-   if (handle.id == 0) return false;
-   if (handle.id > max_handle(widths).id) return false;
+   if (handle.id > max_handle().id) return false;
 
-   u32 index{ static_cast<u32>(handle.id) - 1 };
+   u32 index{ static_cast<u32>(handle.id) };
    out.z = (index / (widths.x * widths.y));
 
    u32 remainder{ index % (widths.x * widths.y) };
@@ -117,37 +116,15 @@ static bool get_coordinates(Cube_Handle handle, Cube_Count widths, Cube_Index& o
    return true;
 }
 
-inline u32 index_of(f32 p, f32 min, f32 step) {
-   return static_cast<u32>((p - min) / step);
-}
-
-inline Cube_Index index_of(Cube_Position p) {
-   return Cube_Index{
-      index_of(p.x, X_MIN, X_STEP),
-      index_of(p.y, Y_MIN, Y_STEP),
-      index_of(p.z, Z_MIN, Z_STEP)
-   };
-}
-
-inline Vector3 get_world_vector3(Cube_Position p) {
-   return Vector3{
-      CUBE_SPACING * (index_of(p.x, X_MIN, X_STEP) + (static_cast<f32>((static_cast<i32>(X_STEP_COUNT) & 1) == 0) * 0.5f)),
-      CUBE_SPACING * (index_of(p.y, Y_MIN, Y_STEP) + (static_cast<f32>((static_cast<i32>(Y_STEP_COUNT) & 1) == 0) * 0.5f)),
-      CUBE_SPACING * (index_of(p.z, Z_MIN, Z_STEP) + (static_cast<f32>((static_cast<i32>(Z_STEP_COUNT) & 1) == 0) * 0.5f))
-   };
-}
 
 inline Vector3 get_world_vector3(Cube_Index coords, Cube_Count widths, f32 spacing) {
    return Vector3{
-      spacing * (static_cast<f32>(coords.x - (widths.x / 2)) + (static_cast<f32>((widths.x & 1) == 0) * 0.5f)),
-      spacing * (static_cast<f32>(coords.y - (widths.y / 2)) + (static_cast<f32>((widths.y & 1) == 0) * 0.5f)),
-      spacing * (static_cast<f32>(coords.z - (widths.z / 2)) + (static_cast<f32>((widths.z & 1) == 0) * 0.5f))
+      spacing * (static_cast<f32>(coords.x) - ((static_cast<f32>(widths.x) - 1.0f) * 0.5f)),
+      spacing * (static_cast<f32>(coords.y) - ((static_cast<f32>(widths.y) - 1.0f) * 0.5f)),
+      spacing * (static_cast<f32>(coords.z) - ((static_cast<f32>(widths.z) - 1.0f) * 0.5f))
    };
 }
 
-inline Cube_Handle get_handle(Cube_Position p) {
-   return Cube_Handle{ static_cast<u32>(index_of(p.y, X_MIN, X_STEP) + (index_of(p.y, Y_MIN, Y_STEP) * X_STEP_COUNT) + (index_of(p.z, Z_MIN, Z_STEP) * X_STEP_COUNT * Y_STEP_COUNT)) };
-}
 
 static const char * get_value_string(Value v) {
    switch (v) {
@@ -185,40 +162,36 @@ enum Test_Handles {
 };
 
 i32 main() { 
-   Cube_Handle largest_handle{ max_handle(CUBE_COUNT) };
-
-   Value* values = static_cast<Value*>(std::malloc((largest_handle.id + 1) * sizeof(Value)));
+   Value* values = static_cast<Value*>(std::malloc((CUBE_TOTAL_COUNT) * sizeof(Value)));
    if (values == nullptr) {
       std::cerr << "ERR: ALLOC VALUES" << std::endl;
       return 1;
    }
 
-   values[0] = VALUE_NONE;
-   for (f32 z{ Z_MIN }; z < Z_MAX; z+=Z_STEP) {
-      for (f32 y{ Y_MIN }; y < Y_MAX; y+=Y_STEP) {
-         for (f32 x{ X_MIN }; x < X_MAX; x+=X_STEP) {
-            Cube_Index coord{ index_of({x, y, z}) };
-            Cube_Handle handle{ get_handle(coord, CUBE_COUNT) };
-            values[handle.id] = static_cast<Value>((hash_coord(coord) & 3u) + 1u);
+   for (u32 z{ 0 }; z < Z_STEP_COUNT; ++z) {
+      for (u32 y{ 0 }; y < Y_STEP_COUNT; ++y) {
+         for (u32 x{ 0 }; x < X_STEP_COUNT; ++x) {
+            Cube_Handle handle{ get_handle({x,y,z}, CUBE_COUNT) };
+            values[handle.id] = static_cast<Value>((hash_coord({x,y,z}) & 3u));
          }
       }
    }
 
-   Cube_Palette palettes[4] = { };
-   palettes[1].styles[VALUE_A] = {BLUE, RAYWHITE};
-   palettes[1].styles[VALUE_B] = {RED, RAYWHITE};
-   palettes[1].styles[VALUE_C] = {GREEN, RAYWHITE};
+   Cube_Palette palettes[3] = { };
+   palettes[0].styles[VALUE_A] = {BLUE, RAYWHITE};
+   palettes[0].styles[VALUE_B] = {RED, RAYWHITE};
+   palettes[0].styles[VALUE_C] = {GREEN, RAYWHITE};
+   palettes[0].styles[VALUE_D] = {Color{255, 255, 255, 153}, RAYWHITE};
+
+   palettes[1].styles[VALUE_A] = {YELLOW, RAYWHITE};
+   palettes[1].styles[VALUE_B] = {ORANGE, RAYWHITE};
+   palettes[1].styles[VALUE_C] = {MAROON, RAYWHITE};
    palettes[1].styles[VALUE_D] = {Color{255, 255, 255, 153}, RAYWHITE};
 
-   palettes[2].styles[VALUE_A] = {YELLOW, RAYWHITE};
-   palettes[2].styles[VALUE_B] = {ORANGE, RAYWHITE};
-   palettes[2].styles[VALUE_C] = {MAROON, RAYWHITE};
-   palettes[2].styles[VALUE_D] = {Color{255, 255, 255, 153}, RAYWHITE};
-
-   palettes[3].styles[VALUE_A] = {BEIGE, GREEN};
-   palettes[3].styles[VALUE_B] = {BROWN, GREEN};
-   palettes[3].styles[VALUE_C] = {DARKBROWN, GOLD};
-   palettes[3].styles[VALUE_D] = {Color{255, 255, 255, 153}, GOLD};
+   palettes[2].styles[VALUE_A] = {BEIGE, GREEN};
+   palettes[2].styles[VALUE_B] = {BROWN, GREEN};
+   palettes[2].styles[VALUE_C] = {DARKBROWN, GOLD};
+   palettes[2].styles[VALUE_D] = {Color{255, 255, 255, 153}, GOLD};
 
    sdk::Runtime_Config config = {};
    sdk::Runtime_State runtime = {};
@@ -274,13 +247,13 @@ i32 main() {
 
    Cube_Palette_Handle palette{ 1 };
 
-   Cube_Index selected{};
-   Cube_Handle selected_handle = get_handle(selected, CUBE_COUNT);
+   Cube_Index c{};
+   Cube_Handle selected_handle = get_handle(c, CUBE_COUNT);
 
-   Cube_Index test1{1,1,1};
-   Cube_Index test2{1,1,0};
+   Cube_Handle test1{5};
+   Cube_Handle test2{4};
 
-   Cube_Index test_cache = selected;
+   Cube_Handle test_cache = selected_handle;
 
    Test_Handles active_handle{ ACTUAL_SELECTED };
 
@@ -298,16 +271,16 @@ i32 main() {
       if (IsKeyPressed(KEY_N)) {
          switch (active_handle) {
          case ACTUAL_SELECTED: 
-            test_cache = selected;
-            selected = test1;
+            test_cache = selected_handle;
+            selected_handle = test1;
             active_handle = TEST_HANDLE_ONE;
             break;
          case TEST_HANDLE_ONE: 
-            selected = test2;
+            selected_handle = test2;
             active_handle = TEST_HANDLE_TWO;
             break;
          case TEST_HANDLE_TWO: 
-            selected = test_cache;
+            selected_handle = test_cache;
             active_handle = ACTUAL_SELECTED;
             break;
          }
@@ -319,11 +292,8 @@ i32 main() {
       if ((i32)text_x >= config.screen_width) text_x = 0.0f;
       if ((i32)text_y >= config.screen_height) text_y = 0.0f;
 
-      selected_handle = get_handle(selected, CUBE_COUNT);
-
-      Cube_Index c = {};
       bool is_selected_valid{ get_coordinates(selected_handle, CUBE_COUNT, c) };
-      Value selected_value{ VALUE_NONE };
+      Value selected_value{ VALUE_A };
 
       Vector3 world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
       camera_state.target = world_center;
@@ -353,19 +323,19 @@ i32 main() {
 
             const Cube_Palette& styles{ palettes[palette.id] };
 
-            for (f32 z{ Z_MIN }; z < Z_MAX; z+=Z_STEP) {
-               for (f32 y{ Y_MIN }; y < Y_MAX; y+=Y_STEP) {
-                  for (f32 x{ X_MIN }; x < X_MAX; x+=X_STEP) {
+            for (u32 z{ 0 }; z < Z_STEP_COUNT; ++z) {
+               for (u32 y{ 0 }; y < Y_STEP_COUNT; ++y) {
+                  for (u32 x{ 0 }; x < X_STEP_COUNT; ++x) {
 
                      // 0 1 2 3 4
                      //     ^
                      // 0 1 2 3 4 5
                      //       ^
 
-                     Cube_Handle cube_handle{ get_handle({x,y,z}) };
+                     Cube_Handle cube_handle{ get_handle({x,y,z}, CUBE_COUNT) };
                      Value cube_value{ values[cube_handle.id] };
 
-                     Vector3 p{ get_world_vector3({x,y,z}) }; 
+                     Vector3 p{ get_world_vector3({x,y,z}, CUBE_COUNT, CUBE_SPACING) }; 
 
                      DrawCubeV(p, CUBE_SIZE, styles.styles[cube_value].fill_color);
                      if (is_selected_valid && selected_handle.id == cube_handle.id) {
