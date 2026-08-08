@@ -36,8 +36,8 @@ tests for coach-side verification.
 - `CURRICULUM.md` contains the durable 50-checkpoint route. Its progress ledger
   is the single authoritative record of completed work.
 - `CURRENT_STEP.md` contains only the detailed brief for the active checkpoint.
-- Checkpoints 1 through 16 are complete; Checkpoint 17 (persistent selected
-  target) is active.
+- Checkpoints 1 through 17 are complete; Checkpoint 18 (bounded focused
+  region) is active.
 - `3D_SPACE_CURRICULUM.md` is an independent 12-week mathematics practice track
   and does not change main-curriculum progress.
 
@@ -79,8 +79,10 @@ Do not duplicate checkpoint history in this file.
 - Avoid ternary operators; prefer explicit control flow.
 - References represent required borrowed inputs. Pointers represent backing
   memory, C strings/callback contexts, or pointer-plus-count streams.
-- Stable array identities use one-based 32-bit handles. Index zero is an
-  all-zero stub; transient dense command streams may remain zero-based.
+- Stable cube and palette identities use zero-based 32-bit handles. A
+  zero-initialized handle identifies the first element; valid handles occupy
+  the half-open range `[0, count)`. Keep element counts distinct from maximum
+  handles (`maximum handle == count - 1`).
 - Hot semantic data and transient command streams remain compact and contiguous.
   X is the contiguous cube-field dimension unless measurement supports another
   choice. Teach cache lines, L1/L2/L3 working sets, prefetch, and bandwidth with

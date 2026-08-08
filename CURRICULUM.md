@@ -122,7 +122,8 @@ switch the working tree to `baseline` over uncommitted work.
 - References for required borrowed inputs; pointers for real memory ranges,
   optional memory, callbacks, C strings, and pointer-plus-count streams.
 - Straightforward initialization/shutdown for Raylib resources.
-- One-based handles for stable array identities; zero is a harmless stub.
+- Zero-based handles for stable array identities; valid handles occupy
+  `[0, count)` and a zero-initialized handle identifies the first element.
 - Compact contiguous hot data, X-contiguous traversal, and explicit reasoning
   about working sets, cache lines, L1/L2/L3, prefetch, and memory bandwidth.
 - Immediate-mode rendering; no retained application scene in the SDK.
@@ -387,38 +388,38 @@ for the other two axes.
 
 **Self-check:** Test dimensions 1, 2, 3, and 4 independently.
 
-## Checkpoint 13 — One-based cube handles
+## Checkpoint 13 — Zero-based cube handles
 
-**Challenge:** Convert between `(x,y,z)` and a one-based 32-bit handle while
-reserving zero as “no cube.”
+**Challenge:** Convert between `(x,y,z)` and a zero-based 32-bit handle. Keep X
+contiguous and distinguish the element count from the maximum valid handle.
 
 **Visible finish:** The overlay shows the handle and recovered coordinate for a
 visually highlighted cube; changing the highlighted coordinate preserves the
 round trip.
 
-**Reflect after:** How did you flatten the coordinates? Where did you add or
-remove the reserved stub offset?
+**Reflect after:** How did you flatten the coordinates? Why is the valid handle
+range `[0, count)` while the maximum valid handle is `count - 1`?
 
-**Hints:** First derive the zero-based flattening formula. Add the handle rule
-only at the identity boundary.
+**Hints:** Derive the flattening formula with X as the fastest-changing axis,
+then reverse it using division and remainder.
 
 **Read:** `REPORT.md`, section 8.2, and [R6].
 
-**Self-check:** Test first, last, and out-of-bounds coordinates plus handle zero.
+**Self-check:** Test the first and last handles, round-trip several interior
+coordinates, and reject a handle equal to the element count.
 
 ## Checkpoint 14 — Cube values A through D
 
-**Challenge:** Define byte-wide zero/A/B/C/D categories and create one simple,
-contiguous, application-owned value buffer with capacity `cube_count + 1`.
-Leave slot zero as the all-zero stub and associate one category with every real
-one-based cube handle. This is provisional storage: do not introduce the
-allocator interface or an `app` module yet.
+**Challenge:** Define byte-wide A/B/C/D categories and create one simple,
+contiguous, application-owned value buffer with capacity `cube_count`. Associate
+one category with every zero-based cube handle. This is provisional storage: do
+not introduce the allocator interface or an `app` module yet.
 
 **Visible finish:** The tiny field displays four clearly different fill colors,
 and the overlay identifies the highlighted cube's value.
 
 **Reflect after:** What changed when cubes began storing category bytes instead
-of colors? What did the zero slot simplify?
+of colors? Why does handle order now match the buffer's physical index order?
 
 **Hints:** Create and initialize the buffer once before the frame loop. Use a
 simple repeating pattern first, index it directly by a validated handle, and
@@ -429,9 +430,8 @@ do not design the palette system early.
 
 **Read:** `REPORT.md`, sections 8.2 and 8.3.
 
-**Self-check:** Slot zero stays zero, every real handle maps to exactly one byte,
-and invalid handles resolve to the zero value without exposing the backing
-pointer as identity.
+**Self-check:** Every handle in `[0, cube_count)` maps to exactly one initialized
+byte and the last handle remains inside the allocation.
 
 ## Checkpoint 15 — Deterministic value generation
 
@@ -456,8 +456,8 @@ distribution.
 
 **Challenge:** Separate semantic value from visual style and introduce three
 palettes. A `Cube_Visual_Style` keeps one value's fill and edge colors adjacent.
-Palette handles are one-based, palette zero is an all-zero stub, and each
-palette contains a zero style followed by styles for A/B/C/D.
+Palette handles are zero-based, and each palette contains adjacent styles for
+A/B/C/D.
 
 **Visible finish:** Keys 1/2/3 recolor every visible cube and its wireframe
 without changing cube values. D is white at roughly 60% opacity in each palette.
@@ -465,10 +465,9 @@ without changing cube values. D is white at roughly 60% opacity in each palette.
 **Reflect after:** Why did keeping fill and edge colors adjacent help? What
 remained unchanged when the active palette changed?
 
-**Hints:** Keep each palette's five styles contiguous and resolve a style from
-the active palette handle plus the immutable cube value. Invalid palette or
-value handles resolve to their zero stubs. Store semantics once in the cube
-value buffer; do not cache a second per-cube color array.
+**Hints:** Keep each palette's four styles contiguous and resolve a style from
+the active palette handle plus the immutable cube value. Store semantics once
+in the cube value buffer; do not cache a second per-cube color array.
 
 **Read:** `REPORT.md`, section 8.4.
 
@@ -1375,12 +1374,12 @@ links here instead of duplicating checkpoint history.
 | 10 | Orbit SDK | complete | | Build/review passed; reusable orbit policy integrated with raw app input. |
 | 11 | Tiny field | complete | | Build/review passed; field renders from explicit nested loops without storing positions. |
 | 12 | Implicit centering | complete | | Build/review passed; arbitrary even/odd dimensions stay centered around world origin. |
-| 13 | Cube handles | complete | | Build/review passed; one-based X-contiguous handles round-trip through grid coordinates with zero reserved. |
-| 14 | Cube values | complete | | Build/review passed; one-byte immutable A/B/C/D values use one-based handles with a zero stub. |
+| 13 | Cube handles | complete | | Build/review passed; zero-based X-contiguous handles round-trip through grid coordinates. |
+| 14 | Cube values | complete | | Build/review passed; one-byte immutable A/B/C/D values use compact zero-based handles. |
 | 15 | Deterministic generation | complete | | Build/review passed; startup coordinate hashing produces immutable reproducible A/B/C/D values without storage-order striping. |
-| 16 | Palettes and edges | complete | | Build/review passed; three one-based palettes map immutable values to adjacent fill/edge styles and switch immediately with keys 1/2/3. |
-| 17 | Selected target | working | | Persistent selection drives the orbit target; graphics-first curriculum begins here. |
-| 18 | Focused bounds | not started | | |
+| 16 | Palettes and edges | complete | | Build/review passed; three zero-based palettes map immutable values to adjacent fill/edge styles and switch immediately with keys 1/2/3. |
+| 17 | Selected target | complete | | Build/review passed; persistent zero-based selection drives the orbit target without resetting orientation or zoom. |
+| 18 | Focused bounds | working | | Directly enumerate a selected-cube coordinate box clipped to all six field boundaries. |
 | 19 | Radius culling | not started | | |
 | 20 | Discrete navigation events | not started | | |
 | 21 | Camera basis visualization | not started | | |

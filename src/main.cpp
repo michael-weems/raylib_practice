@@ -26,17 +26,17 @@ using f32 = float;
 using f64 = double;
 
 f64 X_MIN{ -0.5f };
-f64 X_MAX{  0.5f };
+f64 X_MAX{  7.0f };
 f64 X_STEP{ 0.5f };
 u32 X_STEP_COUNT{ static_cast<u32>(std::llround((X_MAX - X_MIN) / X_STEP)) + 1 };
 
-f64 Y_MIN{ -0.5f };
-f64 Y_MAX{  0.5f };
+f64 Y_MIN{ -4.0f };
+f64 Y_MAX{  4.0f };
 f64 Y_STEP{ 0.5f };
 u32 Y_STEP_COUNT{ static_cast<u32>(std::llround((Y_MAX - Y_MIN) / Y_STEP)) + 1 };
 
-f64 Z_MIN{ -0.5f };
-f64 Z_MAX{  0.5f };
+f64 Z_MIN{ -5.0f };
+f64 Z_MAX{  5.0f };
 f64 Z_STEP{ 0.5f };
 u32 Z_STEP_COUNT{ static_cast<u32>(std::llround((Z_MAX - Z_MIN) / Z_STEP)) + 1 };
 
@@ -250,8 +250,8 @@ i32 main() {
    Cube_Index c{};
    Cube_Handle selected_handle = get_handle(c, CUBE_COUNT);
 
-   Cube_Handle test1{5};
-   Cube_Handle test2{4};
+   Cube_Handle test1{2000};
+   Cube_Handle test2{1400};
 
    Cube_Handle test_cache = selected_handle;
 
@@ -311,6 +311,23 @@ i32 main() {
          std::cerr << "ERR: CAMERA UPDATE" << std::endl;
          break;
       }
+      
+      i32 bound{ 3 };
+
+      i32 lx{ static_cast<i32>(c.x) - bound };
+      u32 ux{ c.x + bound };
+      if (lx < 0) lx = 0;
+      if (ux >= X_STEP_COUNT) ux = X_STEP_COUNT - 1;
+
+      i32 ly{ static_cast<i32>(c.y) - bound };
+      u32 uy{ c.y + bound };
+      if (ly < 0) ly = 0;
+      if (uy >= Y_STEP_COUNT) uy = Y_STEP_COUNT - 1;
+
+      i32 lz{ static_cast<i32>(c.z) - bound };
+      u32 uz{ c.z + bound };
+      if (lz < 0) lz = 0;
+      if (uz >= Z_STEP_COUNT) uz = Z_STEP_COUNT - 1;
 
       BeginDrawing();
          ClearBackground(BLACK);
@@ -323,9 +340,9 @@ i32 main() {
 
             const Cube_Palette& styles{ palettes[palette.id] };
 
-            for (u32 z{ 0 }; z < Z_STEP_COUNT; ++z) {
-               for (u32 y{ 0 }; y < Y_STEP_COUNT; ++y) {
-                  for (u32 x{ 0 }; x < X_STEP_COUNT; ++x) {
+            for (u32 z{ static_cast<u32>(lz) }; z <= uz; ++z) {
+               for (u32 y{ static_cast<u32>(ly) }; y <= uy; ++y) {
+                  for (u32 x{ static_cast<u32>(lx) }; x <= ux; ++x) {
 
                      // 0 1 2 3 4
                      //     ^

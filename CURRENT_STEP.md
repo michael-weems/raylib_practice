@@ -2,151 +2,188 @@
 
 ## Resume here
 
-Checkpoints 1 through 16 are complete. Checkpoint 17 is **Persistent selected
-target**.
+Checkpoints 1 through 17 are complete. Checkpoint 18 is **A bounded focused
+region**.
 
-The highlighted coordinate in the current frame loop is temporary local data,
-while the orbit camera still targets the world origin. This checkpoint makes
-selection persistent and connects it to the camera's focus point.
+The application currently submits every cube in the field every frame. This
+checkpoint changes focused rendering so it directly enumerates only a small
+coordinate box around the selected cube.
 
-Build directly in `main.cpp`. Do not create an application module, controller
-framework, or refactor checkpoint.
+Build directly in `main.cpp`. Keep the existing camera, palette, value, and
+selection behavior intact. Do not create a visibility system or new module.
 
-## New graphics concept: moving an orbit's focus point
+## New graphics concept: bounded candidate generation
 
-Your orbit camera is derived from four authoritative values:
+Large scenes are rarely rendered by blindly submitting every possible object.
+The renderer first constructs a cheap set of plausible candidates, then later
+applies more precise rejection tests.
 
-```text
-target + yaw + pitch + distance -> camera position and Camera3D
-```
-
-Changing only `target` translates the complete orbit sphere through world space.
-Yaw, pitch, and distance still describe the camera's orientation and radius
-relative to that new focus point.
-
-For cube selection, keep the stable cube handle as persistent identity:
+For this checkpoint, the candidate region is an axis-aligned box in **grid
+space**, not world space:
 
 ```text
-selected handle -> grid coordinate -> world-space cube center -> camera target
+selected grid coordinate + radius
+    -> clamp against field dimensions
+    -> directly enumerate the remaining coordinate box
+    -> derive handles and world centers
+    -> submit cubes immediately
 ```
 
-The coordinate and center are derived answers. Storing all three as independent
-authoritative state would allow them to disagree.
+The box radius is five cubes on every axis. Do not apply spherical distance
+culling yet; the eight box corners should remain visible. Checkpoint 19 adds
+that narrower test.
 
-## Frame-order concept
+## Why direct enumeration matters
 
-The camera used for drawing must reflect this frame's selection:
+There are two possible approaches:
 
 ```text
-poll selection event
-    -> update selected handle
-    -> derive coordinate and center
-    -> assign orbit target
-    -> derive Camera3D
-    -> draw and report the same selected cube
+scan the whole field -> ask whether each cube is nearby
+
+calculate nearby bounds -> visit only cubes that can be nearby
 ```
 
-If camera derivation happens before selection changes, the scene can display one
-selected cube while the camera targets the previous cube for a frame. This is a
-small example of why update order matters in interactive graphics.
+The second approach scales with the visible neighborhood instead of total field
+size. A centered radius-five box contains at most `11 * 11 * 11 = 1331`
+candidates regardless of whether the complete field contains thousands or
+millions of cubes.
+
+This is the first major software-rendering performance lesson in the project:
+the fastest cube is the cube whose geometry you never submit.
 
 ## Build brief
 
-1. Move the selected cube handle outside the frame loop so it persists between
-   frames.
-2. Initialize it from a known valid coordinate near the field center.
-3. Add one temporary discrete key, such as `N`, that toggles between that cube
-   and one other known valid cube. This is only a visible retargeting test; full
-   navigation begins in Checkpoint 20.
-4. Each frame, derive the selected coordinate from the selected handle.
-5. Derive the selected cube's exact world-space center using the same centering
-   formula used to draw cube centers.
-6. Assign that center to the orbit camera target before calling the orbit-camera
-   update.
-7. Use the persistent selected handle for highlighting and the overlay.
-8. Preserve current yaw, pitch, distance, cursor capture, zoom, palette keys,
-   deterministic values, and shutdown behavior.
+1. Make the temporary field large enough that a radius-five box does not cover
+   the entire field. Preserve the arbitrary min/max/step configuration and
+   centered world-space behavior.
+2. Keep the focused radius as a single integer value outside the hot loops.
+3. After deriving the selected `Cube_Index`, calculate the minimum and maximum
+   candidate coordinate for X, Y, and Z.
+4. Clamp each axis independently to the valid zero-based index range for that
+   dimension.
+5. Replace the full-field render traversal with loops over only those bounded
+   coordinates. Keep X as the innermost, contiguous loop.
+6. Continue deriving handles and world positions rather than storing a visible
+   cube array.
+7. Count how many candidates the bounded loops visit and show that count in the
+   existing 2D overlay.
+8. Adjust the temporary selection test so you can visibly compare a target near
+   the field center with a target on an edge or corner.
 
-## A useful small helper
+## The signed/unsigned boundary trap
 
-Camera targeting and rendering now require the same coordinate-to-world-center
-calculation. A single static function for that calculation is a useful
-correctness boundary, not an architecture exercise:
+`Cube_Index` uses unsigned integers, but subtracting a radius near coordinate
+zero is conceptually signed arithmetic:
 
 ```text
-grid coordinate + dimensions + spacing -> world-space center
+selected x = 2
+radius     = 5
+raw min x  = -3
+clamped x  = 0
 ```
 
-Use it for both drawing and camera targeting. This prevents a future spacing or
-even/odd-centering change from moving the visible cube without moving its camera
-target, picking box, or annotations.
+Subtracting directly in an unsigned type wraps to a very large positive value.
+Choose a calculation order or temporary type that can represent the negative
+intermediate, clamp it, and only then use the result as an array coordinate.
 
-You choose its exact name and signature. It can remain in `main.cpp`.
+The upper side has a related distinction:
+
+```text
+dimension count = N
+valid coordinates = 0 through N - 1
+```
+
+Decide whether your loop bounds are inclusive or half-open and keep that choice
+consistent. Both conventions work; mixing them loses or adds a layer.
+
+## Cache and hot-loop intent
+
+The existing flattening order makes X contiguous:
+
+```text
+handle = x + y*width_x + z*width_x*width_y
+```
+
+Keeping X innermost means successive iterations read successive `Value` bytes.
+That works naturally with cache-line fetches and hardware prefetching. Calculate
+the six region bounds once before drawing rather than clamping or recomputing
+them for every candidate.
+
+Do not add a persistent list of visible handles. Immediate-mode rendering may
+derive and submit this frame's bounded candidates directly.
 
 ## Visible finish
 
-- The camera orbits the highlighted cube's exact center.
-- Pressing the temporary toggle key snaps selection and the orbit target to the
-  second cube in the same frame.
-- Retargeting does not reset yaw, pitch, or distance.
-- The selected wireframe and overlay change to the same cube.
-- Palette switching and all existing camera/cursor behavior continue to work.
+- With selection near the center, an `11 x 11 x 11` cube box follows the camera
+  target when the field is large enough in every dimension.
+- With selection at a boundary, the neighborhood is clipped cleanly instead of
+  wrapping around or accessing invalid values.
+- Box corners remain visible; this is intentionally not a sphere yet.
+- The selected cube remains highlighted and centered by the orbit camera.
+- The overlay reports the number of candidates submitted.
+- Camera orbit, zoom, cursor capture, palette switching, and shutdown still
+  behave as before.
+
+## Self-checks
+
+- At a sufficiently interior coordinate, predict `1331` submitted cubes.
+- At a field corner with at least six cubes along every axis, predict
+  `6 * 6 * 6 = 216` submitted cubes.
+- Try all six boundaries, not only coordinate zero.
+- Confirm that changing semantic min/max values without changing the step count
+  does not shift the rendered field away from world origin.
+- Confirm that the last valid handle remains below `CUBE_TOTAL_COUNT`.
 
 ## Constraints
 
-- Store one selected handle, not a pointer to a cube.
-- Do not store a per-cube position array.
-- Do not directly push the camera position by the target delta; derive it from
-  target/yaw/pitch/distance through the existing orbit update.
-- Use `IsKeyPressed()` for the temporary discrete toggle.
-- Process retargeting before camera derivation to avoid a one-frame mismatch.
+- Enumerate the bounded region directly; do not scan the complete field and
+  reject distant cubes.
+- Do not allocate during the frame loop.
+- Do not store per-cube positions or a retained visible-object list.
+- Keep X as the innermost traversal dimension.
+- Calculate bounds once per frame after selection is known.
 - Keep rendering immediate-mode.
-- Keep hot cube values contiguous and unchanged; selection adds no per-cube
-  storage.
-- No module extraction is required.
+- Do not add Euclidean distance or `sqrt()` yet.
+- No module extraction or general-purpose culling API is required.
 
-## Just-in-time hints
+## Hints if blocked
 
-- For each axis, the field-center coordinate can begin with integer
-  `dimension / 2`; either of the two middle coordinates is a valid convention
-  for an even dimension.
-- Choose the second coordinate by changing one axis by one while remaining in
-  bounds.
-- Your existing handle-to-coordinate conversion already reports whether the
-  selected identity is valid.
-- The same helper should replace the three repeated position expressions in the
-  render loop.
-- If the camera orbits between cubes rather than around the selected cube,
-  inspect whether `camera_state.target` is updated before `orbit_camera_update()`.
+- Treat the problem as three independent one-dimensional intervals before
+  thinking about the nested loops.
+- Raylib does not need to know about these bounds; this is application-side
+  candidate generation before calling `DrawCubeV()`.
+- The selected coordinate already exists before camera derivation and drawing;
+  it is the center of the candidate region.
+- A center coordinate can be derived from each dimension count using integer
+  division. A corner can use coordinate zero or the final valid coordinate.
+- Report the candidate count before attempting any performance conclusions.
 
 ## References if blocked
 
-- `REPORT.md`, sections 8.1–8.2 and 10.
-- `raylib.h` definitions for `Camera3D` and `Vector3`.
-- `raymath.h` vector addition/subtraction helpers.
-- `3D_SPACE_CURRICULUM.md` orbit-camera exercises.
-
-Do not inspect the reference implementation before attempting this checkpoint
-unless you are genuinely blocked.
+- `REPORT.md`, sections 12.2 and 13.
+- `raylib.h` for `DrawCubeV()` and `DrawCubeWiresV()`.
+- `CURRICULUM.md`, Checkpoints 18 and 19, for the box-versus-sphere progression.
 
 ## Review target
 
 Submit the running implementation when ready. Review will check:
 
-- selected identity persists outside the frame loop;
-- coordinate and center are derived rather than duplicated state;
-- drawing and camera targeting use identical center math;
-- retargeting happens before camera derivation;
-- yaw, pitch, distance, and capture behavior survive a snap;
-- overlay, highlight, and camera agree on the selected cube;
-- no redundant per-cube storage or architecture work appeared;
+- all six bounds clamp correctly;
+- no unsigned underflow occurs near coordinate zero;
+- traversal visits only the bounded candidate box;
+- X remains contiguous;
+- candidate counts match center and corner predictions;
+- handles and value reads remain in range;
+- selection, camera targeting, highlighting, and overlay agree;
+- no per-frame allocation or retained render list appeared;
 - the learner build passes.
 
-Reflection follows after it works: which values moved, which remained unchanged,
-and why changing the target translated rather than rotated the orbit.
+Reflection follows after it works: why does calculating a small candidate region
+scale with visible work, and why are bounds best calculated outside the hot
+loops?
 
 ## Resume prompt
 
-> I am starting Checkpoint 17 from `CURRENT_STEP.md`: persist one selected cube
-> handle, derive its world center, and make the existing orbit camera snap its
-> target between two cubes without resetting orientation or zoom.
+> I am starting Checkpoint 18 from `CURRENT_STEP.md`: calculate a radius-five
+> grid-space box around the selected cube, clamp it to the field, and directly
+> render only those bounded candidates while reporting the submitted count.
