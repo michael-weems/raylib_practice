@@ -329,6 +329,8 @@ i32 main() {
       if (lz < 0) lz = 0;
       if (uz >= Z_STEP_COUNT) uz = Z_STEP_COUNT - 1;
 
+      u32 submitted_cubes{ 0 };
+
       BeginDrawing();
          ClearBackground(BLACK);
 
@@ -343,6 +345,15 @@ i32 main() {
             for (u32 z{ static_cast<u32>(lz) }; z <= uz; ++z) {
                for (u32 y{ static_cast<u32>(ly) }; y <= uy; ++y) {
                   for (u32 x{ static_cast<u32>(lx) }; x <= ux; ++x) {
+
+                     i32 radius_squared{ bound * bound };
+                     i32 distance_squared{ (
+                           (static_cast<i32>(x) - static_cast<i32>(c.x)) * (static_cast<i32>(x) - static_cast<i32>(c.x))) 
+                           + ((static_cast<i32>(y) -  static_cast<i32>(c.y)) * (static_cast<i32>(y) - static_cast<i32>(c.y))) 
+                           + ((static_cast<i32>(z) - static_cast<i32>(c.z)) * (static_cast<i32>(z) - static_cast<i32>(c.z))) };
+                     if (distance_squared > radius_squared) continue;
+
+                     ++submitted_cubes;
 
                      // 0 1 2 3 4
                      //     ^
@@ -382,8 +393,11 @@ i32 main() {
          DrawText(TextFormat("Palette: %i", palette.id), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
-         i32 cubes_shown{ (static_cast<i32>(ux)-lx + 1) * (static_cast<i32>(uy)-ly + 1) * (static_cast<i32>(uz)-lz + 1) };
-         DrawText(TextFormat("Number of Cubes: %i", cubes_shown), x_offset, y_offset, font_size, RAYWHITE);
+         i32 cubes_tested{ (static_cast<i32>(ux)-lx + 1) * (static_cast<i32>(uy)-ly + 1) * (static_cast<i32>(uz)-lz + 1) };
+         DrawText(TextFormat("Tested Cubes: %i", cubes_tested), x_offset, y_offset, font_size, RAYWHITE);
+         y_offset += font_size;
+
+         DrawText(TextFormat("Submitted Cubes: %i", submitted_cubes), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          if (is_selected_valid) {

@@ -2,188 +2,210 @@
 
 ## Resume here
 
-Checkpoints 1 through 17 are complete. Checkpoint 18 is **A bounded focused
-region**.
+Checkpoints 1 through 18 are complete. Checkpoint 19 is **Euclidean radius
+culling**.
 
-The application currently submits every cube in the field every frame. This
-checkpoint changes focused rendering so it directly enumerates only a small
-coordinate box around the selected cube.
+Checkpoint 18 reduced the complete field to a small axis-aligned candidate box.
+This checkpoint keeps that box as a broad phase, but rejects its corner cubes
+before doing cube-specific memory access, coordinate conversion, or drawing.
 
-Build directly in `main.cpp`. Keep the existing camera, palette, value, and
-selection behavior intact. Do not create a visibility system or new module.
+Build directly in `main.cpp`. Preserve the current radius of three, bounded
+loops, camera, selection, palettes, and overlay. No module extraction is needed.
 
-## New graphics concept: bounded candidate generation
+## New graphics concept: broad phase and narrow phase
 
-Large scenes are rarely rendered by blindly submitting every possible object.
-The renderer first constructs a cheap set of plausible candidates, then later
-applies more precise rejection tests.
-
-For this checkpoint, the candidate region is an axis-aligned box in **grid
-space**, not world space:
+Visibility and collision systems often use multiple tests ordered from cheapest
+and broadest to more precise and expensive:
 
 ```text
-selected grid coordinate + radius
-    -> clamp against field dimensions
-    -> directly enumerate the remaining coordinate box
-    -> derive handles and world centers
-    -> submit cubes immediately
+complete field
+    -> clamped coordinate box       broad phase
+    -> squared-distance test        narrow phase
+    -> handle/value/world position  accepted cube work
+    -> Raylib draw submission       software rasterization
 ```
 
-The box radius is five cubes on every axis. Do not apply spherical distance
-culling yet; the eight box corners should remain visible. Checkpoint 19 adds
-that narrower test.
+The box guarantees a small upper bound on work. The sphere test then removes
+the box corners. This is more efficient than applying the distance test to the
+entire field, and much cheaper than asking the software renderer to process
+geometry that cannot belong to the focused neighborhood.
 
-## Why direct enumeration matters
+This checkpoint classifies cube **centers** in grid space. It does not test
+whether the physical volume of a cube intersects a mathematical sphere.
 
-There are two possible approaches:
+## Grid-space Euclidean distance
+
+For one candidate coordinate and the selected coordinate:
 
 ```text
-scan the whole field -> ask whether each cube is nearby
+dx = candidate x - selected x
+dy = candidate y - selected y
+dz = candidate z - selected z
 
-calculate nearby bounds -> visit only cubes that can be nearby
+distance squared = dx*dx + dy*dy + dz*dz
+radius squared   = radius*radius
 ```
 
-The second approach scales with the visible neighborhood instead of total field
-size. A centered radius-five box contains at most `11 * 11 * 11 = 1331`
-candidates regardless of whether the complete field contains thousands or
-millions of cubes.
+Accept the candidate when its squared distance is less than or equal to the
+squared radius. The equality includes cubes whose centers lie exactly on the
+sphere boundary.
 
-This is the first major software-rendering performance lesson in the project:
-the fastest cube is the cube whose geometry you never submit.
+Because spacing is currently uniform on X, Y, and Z, a sphere in grid space is
+also a uniformly scaled sphere in world space. Different spacing per axis would
+turn this grid-space sphere into an ellipsoid in world space.
+
+## Why avoid `sqrt()`?
+
+The ordinary distance formula ends with a square root:
+
+```text
+distance = sqrt(dx*dx + dy*dy + dz*dz)
+```
+
+Square root is unnecessary when you only need to compare distances. For
+nonnegative values, squaring preserves order:
+
+```text
+distance <= radius
+
+has the same classification as
+
+distance_squared <= radius_squared
+```
+
+The squared form uses integer subtraction, multiplication, addition, and one
+comparison. It is exact for these small grid offsets and avoids floating-point
+conversion and square root in the candidate loop.
 
 ## Build brief
 
-1. Make the temporary field large enough that a radius-five box does not cover
-   the entire field. Preserve the arbitrary min/max/step configuration and
-   centered world-space behavior.
-2. Keep the focused radius as a single integer value outside the hot loops.
-3. After deriving the selected `Cube_Index`, calculate the minimum and maximum
-   candidate coordinate for X, Y, and Z.
-4. Clamp each axis independently to the valid zero-based index range for that
-   dimension.
-5. Replace the full-field render traversal with loops over only those bounded
-   coordinates. Keep X as the innermost, contiguous loop.
-6. Continue deriving handles and world positions rather than storing a visible
-   cube array.
-7. Count how many candidates the bounded loops visit and show that count in the
-   existing 2D overlay.
-8. Adjust the temporary selection test so you can visibly compare a target near
-   the field center with a target on an edge or corner.
+1. Keep the radius-three clamped box from Checkpoint 18 unchanged.
+2. Preserve the existing box-candidate count; it reports broad-phase work.
+3. Add a separate submitted-cube count and reset it once per frame.
+4. Inside the bounded loops, calculate the signed X/Y/Z offset from the
+   selected coordinate.
+5. Compare squared distance with squared radius and skip candidates outside the
+   sphere.
+6. Perform the rejection before deriving a handle, loading `values[]`, deriving
+   a world position, or calling a Raylib draw function.
+7. Increment the submitted count only for accepted cubes.
+8. Show both tested candidates and submitted cubes in the 2D overlay.
 
-## The signed/unsigned boundary trap
+## Signed arithmetic again
 
-`Cube_Index` uses unsigned integers, but subtracting a radius near coordinate
-zero is conceptually signed arithmetic:
+The candidate and selected coordinates are unsigned identities, but their
+difference can be negative:
 
 ```text
-selected x = 2
-radius     = 5
-raw min x  = -3
-clamped x  = 0
+candidate x = 2
+selected x  = 5
+dx          = -3
 ```
 
-Subtracting directly in an unsigned type wraps to a very large positive value.
-Choose a calculation order or temporary type that can represent the negative
-intermediate, clamp it, and only then use the result as an array coordinate.
+Convert to a signed type before subtraction. Subtracting first in an unsigned
+type would wrap, and squaring that wrapped value would not recover the intended
+distance.
 
-The upper side has a related distinction:
+## Hot-loop reasoning
+
+The Z offset is unchanged for an entire Z slice. The Y offset is unchanged for
+an entire X row. Only the X offset changes on every innermost iteration.
+
+After you have a correct version, look at whether your calculation naturally
+allows invariant work to live at the loop level where it changes:
 
 ```text
-dimension count = N
-valid coordinates = 0 through N - 1
+Z loop: calculate dz and dz squared
+    Y loop: calculate dy and partial squared distance
+        X loop: add dx squared and classify
 ```
 
-Decide whether your loop bounds are inclusive or half-open and keep that choice
-consistent. Both conventions work; mixing them loses or adds a layer.
+This is loop-invariant hoisting. It reduces repeated arithmetic without adding
+storage or abstraction. Correctness comes first; make the direct version work
+before considering this arrangement.
 
-## Cache and hot-loop intent
+The distance rejection should also occur before `values[cube_handle.id]`.
+Rejected cubes then cause no semantic-data load and no unnecessary world-space
+math. Accepted X coordinates still access compact, mostly sequential values.
 
-The existing flattening order makes X contiguous:
+## Expected results for radius three
+
+At a sufficiently interior selected coordinate:
 
 ```text
-handle = x + y*width_x + z*width_x*width_y
+box candidates tested = 7 * 7 * 7 = 343
+sphere cubes submitted = 123
 ```
 
-Keeping X innermost means successive iterations read successive `Value` bytes.
-That works naturally with cache-line fetches and hardware prefetching. Calculate
-the six region bounds once before drawing rather than clamping or recomputing
-them for every candidate.
+At a field corner:
 
-Do not add a persistent list of visible handles. Immediate-mode rendering may
-derive and submit this frame's bounded candidates directly.
+```text
+box candidates tested = 4 * 4 * 4 = 64
+sphere cubes submitted = 29
+```
+
+The corner count is a clipped octant of the discrete lattice sphere, including
+the shared boundary planes and the selected center.
 
 ## Visible finish
 
-- With selection near the center, an `11 x 11 x 11` cube box follows the camera
-  target when the field is large enough in every dimension.
-- With selection at a boundary, the neighborhood is clipped cleanly instead of
-  wrapping around or accessing invalid values.
-- Box corners remain visible; this is intentionally not a sphere yet.
-- The selected cube remains highlighted and centered by the orbit camera.
-- The overlay reports the number of candidates submitted.
-- Camera orbit, zoom, cursor capture, palette switching, and shutdown still
-  behave as before.
-
-## Self-checks
-
-- At a sufficiently interior coordinate, predict `1331` submitted cubes.
-- At a field corner with at least six cubes along every axis, predict
-  `6 * 6 * 6 = 216` submitted cubes.
-- Try all six boundaries, not only coordinate zero.
-- Confirm that changing semantic min/max values without changing the step count
-  does not shift the rendered field away from world origin.
-- Confirm that the last valid handle remains below `CUBE_TOTAL_COUNT`.
+- The focused neighborhood changes from a box to a rounded lattice cluster.
+- The selected cube remains at the cluster center when away from boundaries.
+- Near a field boundary, the cluster clips cleanly without wrapping.
+- The overlay separately reports candidates tested and cubes submitted.
+- Interior selection reports 343 tested and 123 submitted.
+- Corner selection reports 64 tested and 29 submitted.
+- Camera orbit, zoom, cursor capture, highlighting, and palettes still work.
 
 ## Constraints
 
-- Enumerate the bounded region directly; do not scan the complete field and
-  reject distant cubes.
-- Do not allocate during the frame loop.
-- Do not store per-cube positions or a retained visible-object list.
-- Keep X as the innermost traversal dimension.
-- Calculate bounds once per frame after selection is known.
+- Keep the bounded box; do not scan the full field.
+- Use squared grid distance; do not call `sqrt`, `Vector3Distance`, or a Raylib
+  collision function.
+- Use signed offsets before squaring.
+- Reject before handle lookup, value access, world-position calculation, and
+  draw submission.
+- Do not allocate or construct a retained visible-cube list.
+- Keep X as the innermost loop.
 - Keep rendering immediate-mode.
-- Do not add Euclidean distance or `sqrt()` yet.
-- No module extraction or general-purpose culling API is required.
+- No SIMD or generalized culling API is required.
 
-## Hints if blocked
+## Self-checks
 
-- Treat the problem as three independent one-dimensional intervals before
-  thinking about the nested loops.
-- Raylib does not need to know about these bounds; this is application-side
-  candidate generation before calling `DrawCubeV()`.
-- The selected coordinate already exists before camera derivation and drawing;
-  it is the center of the candidate region.
-- A center coordinate can be derived from each dimension count using integer
-  division. A corner can use coordinate zero or the final valid coordinate.
-- Report the candidate count before attempting any performance conclusions.
+- Temporarily inspect candidates at squared distances `0`, `1`, `8`, `9`, and
+  `10`; radius three should accept through `9` and reject `10`.
+- Verify the selected cube is always accepted because its squared distance is
+  zero.
+- Compare interior and corner counts with the expected values above.
+- Try an upper boundary as well as handle zero's lower corner.
+- Confirm the tested count does not change after adding the sphere test; only
+  the submitted count should fall.
 
 ## References if blocked
 
 - `REPORT.md`, sections 12.2 and 13.
-- `raylib.h` for `DrawCubeV()` and `DrawCubeWiresV()`.
-- `CURRICULUM.md`, Checkpoints 18 and 19, for the box-versus-sphere progression.
+- `raylib.h` for the draw calls whose submissions are being avoided.
+- `3D_SPACE_CURRICULUM.md` for vector length and distance exercises.
 
 ## Review target
 
 Submit the running implementation when ready. Review will check:
 
-- all six bounds clamp correctly;
-- no unsigned underflow occurs near coordinate zero;
-- traversal visits only the bounded candidate box;
-- X remains contiguous;
-- candidate counts match center and corner predictions;
-- handles and value reads remain in range;
-- selection, camera targeting, highlighting, and overlay agree;
-- no per-frame allocation or retained render list appeared;
+- the clamped broad-phase box remains intact;
+- signed offsets are calculated correctly;
+- squared-distance classification includes the radius boundary;
+- rejection happens before cube-specific work;
+- interior and corner tested/submitted counts match predictions;
+- no `sqrt`, full-field scan, allocation, or retained render list appeared;
+- selection, camera target, highlight, and overlay still agree;
 - the learner build passes.
 
-Reflection follows after it works: why does calculating a small candidate region
-scale with visible work, and why are bounds best calculated outside the hot
-loops?
+Reflection follows after it works: why is a cheap broad phase still useful when
+you already have a more accurate sphere test, and why can squared distances be
+compared without computing actual distances?
 
 ## Resume prompt
 
-> I am starting Checkpoint 18 from `CURRENT_STEP.md`: calculate a radius-five
-> grid-space box around the selected cube, clamp it to the field, and directly
-> render only those bounded candidates while reporting the submitted count.
+> I am starting Checkpoint 19 from `CURRENT_STEP.md`: keep the clamped
+> radius-three candidate box, reject coordinates whose squared grid distance
+> exceeds nine, and report both candidates tested and cubes submitted.

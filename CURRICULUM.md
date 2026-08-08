@@ -534,11 +534,12 @@ count with the count at the center.
 ## Checkpoint 19 — Euclidean radius culling
 
 **Challenge:** Keep the clamped candidate box, but accept only coordinates within
-a radius-five sphere in grid space.
+the current focused-radius sphere in grid space. The learner build currently
+uses radius three; final radius tuning remains deferred.
 
 **Visible finish:** The box corners disappear, leaving a rounded lattice volume
-of roughly 515 cubes away from field boundaries. The overlay reports candidates
-tested and cubes submitted.
+of 123 cubes away from field boundaries at radius three. The overlay reports
+candidates tested and cubes submitted.
 
 **Reflect after:** Why compare squared distance instead of distance? How does a
 cheap CPU rejection reduce much more expensive software rasterization work?
@@ -1379,8 +1380,8 @@ links here instead of duplicating checkpoint history.
 | 15 | Deterministic generation | complete | | Build/review passed; startup coordinate hashing produces immutable reproducible A/B/C/D values without storage-order striping. |
 | 16 | Palettes and edges | complete | | Build/review passed; three zero-based palettes map immutable values to adjacent fill/edge styles and switch immediately with keys 1/2/3. |
 | 17 | Selected target | complete | | Build/review passed; persistent zero-based selection drives the orbit target without resetting orientation or zoom. |
-| 18 | Focused bounds | working | | Directly enumerate a selected-cube coordinate box clipped to all six field boundaries. |
-| 19 | Radius culling | not started | | |
+| 18 | Focused bounds | complete | | Build/review passed; radius-three box directly enumerates 343 interior or 64 corner candidates with X-contiguous traversal. |
+| 19 | Radius culling | working | | Reject bounded-box coordinates outside the selected cube's Euclidean grid-space radius. |
 | 20 | Discrete navigation events | not started | | |
 | 21 | Camera basis visualization | not started | | |
 | 22 | Camera-relative navigation | not started | | |

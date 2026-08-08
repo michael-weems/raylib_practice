@@ -36,8 +36,9 @@ tests for coach-side verification.
 - `CURRICULUM.md` contains the durable 50-checkpoint route. Its progress ledger
   is the single authoritative record of completed work.
 - `CURRENT_STEP.md` contains only the detailed brief for the active checkpoint.
-- Checkpoints 1 through 17 are complete; Checkpoint 18 (bounded focused
-  region) is active.
+- Checkpoints 1 through 18 are complete; Checkpoint 19 (Euclidean radius
+  culling) is active. The learner build currently uses focused radius three;
+  final radius tuning remains deferred until later rendering costs exist.
 - `3D_SPACE_CURRICULUM.md` is an independent 12-week mathematics practice track
   and does not change main-curriculum progress.
 
