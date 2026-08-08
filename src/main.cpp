@@ -250,7 +250,7 @@ i32 main() {
    Cube_Index c{};
    Cube_Handle selected_handle = get_handle(c, CUBE_COUNT);
 
-   Cube_Handle test1{2000};
+   Cube_Handle test1{2005};
    Cube_Handle test2{1400};
 
    Cube_Handle test_cache = selected_handle;
@@ -380,6 +380,10 @@ i32 main() {
          DrawText("ESC: Exit", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
          DrawText(TextFormat("Palette: %i", palette.id), x_offset, y_offset, font_size, RAYWHITE);
+         y_offset += font_size;
+
+         i32 cubes_shown{ (static_cast<i32>(ux)-lx + 1) * (static_cast<i32>(uy)-ly + 1) * (static_cast<i32>(uz)-lz + 1) };
+         DrawText(TextFormat("Number of Cubes: %i", cubes_shown), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          if (is_selected_valid) {
