@@ -161,9 +161,8 @@ enum Test_Handles {
    TEST_HANDLE_TWO
 };
 
-inline i32 pow_i32(i32 value, i32 exponent) {
-   for (i32 i{ 1 }; i < exponent; ++i) value *= value;
-   return value;
+inline i32 square_i32(i32 value) {
+   return value * value;
 }
 
 i32 main() { 
@@ -255,41 +254,49 @@ i32 main() {
    Cube_Index c{};
    Cube_Handle selected_handle = get_handle(c, CUBE_COUNT);
 
-   Cube_Handle test1{2005};
-   Cube_Handle test2{1400};
-
-   Cube_Handle test_cache = selected_handle;
-
-   Test_Handles active_handle{ ACTUAL_SELECTED };
-
    while (!WindowShouldClose()) {
       auto frame_time = std::chrono::steady_clock::now();
       auto diff = frame_time - startup_time;
       double total_time = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() / 1000.0;
 
       f32 dt = GetFrameTime();
-
-      if (IsKeyPressed(KEY_ONE))   palette.id = PALETTE_1;
-      if (IsKeyPressed(KEY_TWO))   palette.id = PALETTE_2;
-      if (IsKeyPressed(KEY_THREE)) palette.id = PALETTE_3;
-
-      if (IsKeyPressed(KEY_N)) {
-         switch (active_handle) {
-         case ACTUAL_SELECTED: 
-            test_cache = selected_handle;
-            selected_handle = test1;
-            active_handle = TEST_HANDLE_ONE;
-            break;
-         case TEST_HANDLE_ONE: 
-            selected_handle = test2;
-            active_handle = TEST_HANDLE_TWO;
-            break;
-         case TEST_HANDLE_TWO: 
-            selected_handle = test_cache;
-            active_handle = ACTUAL_SELECTED;
-            break;
-         }
+      
+      bool is_selected_valid{ get_coordinates(selected_handle, CUBE_COUNT, c) };
+      
+      switch (GetKeyPressed()) { 
+      case KEY_ONE:   palette.id = PALETTE_1; break;
+      case KEY_TWO:   palette.id = PALETTE_2; break;
+      case KEY_THREE: palette.id = PALETTE_3; break;
+      case KEY_H:
+         if (c.x != 0) --c.x;
+         if (c.x < 0) c.x = 0;
+         break;
+      case KEY_L:
+         ++c.x;
+         if (c.x >= X_STEP_COUNT) c.x = X_STEP_COUNT - 1;
+         break;
+      case KEY_K:
+         ++c.y;
+         if (c.y >= Y_STEP_COUNT) c.y = Y_STEP_COUNT - 1;
+         break;
+      case KEY_J:
+         if (c.y != 0) --c.y;
+         if (c.y < 0) c.y = 0;
+         break;
+      case KEY_I:
+         ++c.z;
+         if (c.z >= Z_STEP_COUNT) c.z = Z_STEP_COUNT - 1;
+         break;
+      case KEY_U:
+         if (c.z != 0) --c.z;
+         if (c.z < 0) c.z = 0;
+         break;
+      default: break;
       }
+
+      selected_handle = get_handle(c, CUBE_COUNT);
+
+      is_selected_valid = get_coordinates(selected_handle, CUBE_COUNT, c);
 
       text_x += dt * 20.0f;
       text_y += dt * 20.0f;
@@ -297,7 +304,6 @@ i32 main() {
       if ((i32)text_x >= config.screen_width) text_x = 0.0f;
       if ((i32)text_y >= config.screen_height) text_y = 0.0f;
 
-      bool is_selected_valid{ get_coordinates(selected_handle, CUBE_COUNT, c) };
       Value selected_value{ VALUE_A };
 
       Vector3 world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
@@ -347,14 +353,14 @@ i32 main() {
 
             const Cube_Palette& styles{ palettes[palette.id] };
 
-            i32 radius_squared{ bound * bound };
+            i32 radius_squared{ square_i32(bound) };
 
             for (u32 z{ static_cast<u32>(lz) }; z <= uz; ++z) {
-               i32 dz{ pow_i32(static_cast<i32>(z) - static_cast<i32>(c.z), 2) };
+               i32 dz{ square_i32(static_cast<i32>(z) - static_cast<i32>(c.z)) };
                for (u32 y{ static_cast<u32>(ly) }; y <= uy; ++y) {
-                  i32 dy{ pow_i32(static_cast<i32>(y) - static_cast<i32>(c.y), 2) };
+                  i32 dy{ square_i32(static_cast<i32>(y) - static_cast<i32>(c.y)) };
                   for (u32 x{ static_cast<u32>(lx) }; x <= ux; ++x) {
-                     i32 dx{ pow_i32(static_cast<i32>(x) - static_cast<i32>(c.x), 2) };
+                     i32 dx{ square_i32(static_cast<i32>(x) - static_cast<i32>(c.x)) };
 
                      i32 distance_squared{ dx + dy + dz };
                      if (distance_squared > radius_squared) continue;
@@ -403,7 +409,7 @@ i32 main() {
          DrawText(TextFormat("Tested Cubes: %i", cubes_tested), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
-         DrawText(TextFormat("Submitted Cubes: %i", submitted_cubes), x_offset, y_offset, font_size, RAYWHITE);
+         DrawText(TextFormat("Submitted Cubes: %u", submitted_cubes), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          if (is_selected_valid) {
