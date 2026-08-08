@@ -161,6 +161,11 @@ enum Test_Handles {
    TEST_HANDLE_TWO
 };
 
+inline i32 pow_i32(i32 value, i32 exponent) {
+   for (i32 i{ 1 }; i < exponent; ++i) value *= value;
+   return value;
+}
+
 i32 main() { 
    Value* values = static_cast<Value*>(std::malloc((CUBE_TOTAL_COUNT) * sizeof(Value)));
    if (values == nullptr) {
@@ -342,15 +347,16 @@ i32 main() {
 
             const Cube_Palette& styles{ palettes[palette.id] };
 
-            for (u32 z{ static_cast<u32>(lz) }; z <= uz; ++z) {
-               for (u32 y{ static_cast<u32>(ly) }; y <= uy; ++y) {
-                  for (u32 x{ static_cast<u32>(lx) }; x <= ux; ++x) {
+            i32 radius_squared{ bound * bound };
 
-                     i32 radius_squared{ bound * bound };
-                     i32 distance_squared{ (
-                           (static_cast<i32>(x) - static_cast<i32>(c.x)) * (static_cast<i32>(x) - static_cast<i32>(c.x))) 
-                           + ((static_cast<i32>(y) -  static_cast<i32>(c.y)) * (static_cast<i32>(y) - static_cast<i32>(c.y))) 
-                           + ((static_cast<i32>(z) - static_cast<i32>(c.z)) * (static_cast<i32>(z) - static_cast<i32>(c.z))) };
+            for (u32 z{ static_cast<u32>(lz) }; z <= uz; ++z) {
+               i32 dz{ pow_i32(static_cast<i32>(z) - static_cast<i32>(c.z), 2) };
+               for (u32 y{ static_cast<u32>(ly) }; y <= uy; ++y) {
+                  i32 dy{ pow_i32(static_cast<i32>(y) - static_cast<i32>(c.y), 2) };
+                  for (u32 x{ static_cast<u32>(lx) }; x <= ux; ++x) {
+                     i32 dx{ pow_i32(static_cast<i32>(x) - static_cast<i32>(c.x), 2) };
+
+                     i32 distance_squared{ dx + dy + dz };
                      if (distance_squared > radius_squared) continue;
 
                      ++submitted_cubes;
