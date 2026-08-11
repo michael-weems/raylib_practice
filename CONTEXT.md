@@ -85,6 +85,14 @@ Do not duplicate checkpoint history in this file.
   zero-initialized handle identifies the first element; valid handles occupy
   the half-open range `[0, count)`. Keep element counts distinct from maximum
   handles (`maximum handle == count - 1`).
+- Integer grid indices define storage and navigation. Each axis also has an
+  immutable sampled domain `(minimum, step, sample_count)`; derive a sample
+  value as `minimum + index*step` and its maximum as
+  `minimum + (sample_count - 1)*step`. World placement separately centers the
+  integer index using render spacing. Do not store per-cube coordinates.
+- Cursor capture state, persistent orbit state, and transient camera derivation
+  are separate data. Derive one target-independent orbit offset/basis per frame,
+  then build the final `Camera3D` once from the application-owned target.
 - Hot semantic data and transient command streams remain compact and contiguous.
   X is the contiguous cube-field dimension unless measurement supports another
   choice. Teach cache lines, L1/L2/L3 working sets, prefetch, and bandwidth with

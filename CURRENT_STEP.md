@@ -114,14 +114,14 @@ stale or independently reconstructed camera math.
 Reorganize the frame so that:
 
 1. Raylib input is sampled once.
-2. The current orbit orientation produces a `Camera3D` and basis.
-3. A navigation event is classified using that basis.
-4. A successful step changes the selected coordinate, handle, and world target.
-5. The final camera and rendered neighborhood agree on the same selected cube.
+2. Cursor-capture transitions decide whether mouse delta may rotate the camera.
+3. Mouse and wheel input update persistent yaw, pitch, and distance once.
+4. The orbit offset and basis are derived once without requiring a target.
+5. A navigation event is classified using that basis.
+6. A successful step changes the selected coordinate, handle, and world target.
+7. The final `Camera3D` is built once from that target and the derived offset.
 
-Do not process the same mouse delta or wheel delta through
-`orbit_camera_update()` twice. That would rotate or zoom twice in one frame and
-could also repeat cursor-transition side effects.
+Do not process the same mouse delta, wheel delta, or cursor transition twice.
 
 When a target snaps but yaw, pitch, and distance do not change, this invariant
 should remain true:
@@ -130,20 +130,18 @@ should remain true:
 camera.position - camera.target = unchanged orbit offset
 ```
 
-That invariant is the clue for keeping the final current-frame `Camera3D`
-coherent after selection changes. Work out the simplest ordering or translation
-that preserves it. If this becomes the blocking part, ask for a more specific
-hint before changing the orbit-camera API.
+The target-independent derived offset preserves this invariant by construction;
+the application supplies only the final selected target to the camera build.
 
 ## Build brief
 
-1. Continue deriving forward and right from the completed current camera.
+1. Continue using forward and right from the current derived orbit basis.
 2. Flatten the relevant directions onto XZ.
 3. Convert the four navigation keys into semantic intended directions.
 4. Quantize an intended direction onto exactly one signed X/Z grid step.
 5. Clamp the resulting coordinate to the field.
 6. Recalculate the selected handle and target using existing helpers.
-7. Keep the camera orbit offset coherent during the snap.
+7. Build the final camera once from the selected target and derived offset.
 8. Keep the basis visualization and add concise navigation diagnostics if they
    help verify the chosen world-axis step.
 
@@ -152,11 +150,11 @@ general vector-quantization abstraction for one use site.
 
 ## Immediate-mode and memory intent
 
-All navigation math is transient and derived from this frame's camera plus one
-input event:
+All navigation math is transient and derived from this frame's orbit state plus
+one input event:
 
 ```text
-Camera3D + pressed key -> intended direction -> signed grid delta -> selection
+orbit basis + pressed key -> intended direction -> signed grid delta -> selection
 ```
 
 No navigation array, lookup table, heap allocation, retained command, or cube
@@ -208,15 +206,14 @@ offset invariant.
 
 ## Constraints
 
-- Use the current camera basis, not raw yaw or duplicated trigonometry.
+- Use the target-independent derived orbit basis, not raw yaw or duplicated
+  trigonometry in the application.
 - Ignore Y when classifying horizontal navigation in this checkpoint.
 - Produce only face-adjacent grid movement; no diagonal steps.
 - Keep the existing discrete Raylib key-event behavior.
 - Choose and understand a deterministic 45-degree tie policy.
 - Do not scan cube data to navigate.
 - Do not allocate or retain derived navigation data.
-- Do not change the orbit-camera API unless the current attempt proves it is
-  necessary.
 - Do not implement pitch-aware Y selection yet.
 
 ## References if blocked

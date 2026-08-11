@@ -4,12 +4,9 @@
 #include "sdk/runtime.h"
 #include "sdk/orbit_camera.h"
 
-#include <chrono>
 #include <cstdlib>
 #include <cstdint>
-#include <cstdio>
 #include <iostream>
-#include <cmath>
 
 // Modern C++ using syntax (Recommended)
 using i8  = int8_t;
@@ -25,23 +22,36 @@ using u64 = uint64_t;
 using f32 = float;
 using f64 = double;
 
-f64 X_MIN{ -0.5f };
-f64 X_MAX{  7.0f };
-f64 X_STEP{ 0.5f };
-u32 X_STEP_COUNT{ static_cast<u32>(std::llround((X_MAX - X_MIN) / X_STEP)) + 1 };
+struct Sampled_Axis {
+   f64 minimum;
+   f64 step;
+   u32 sample_count;
+};
 
-f64 Y_MIN{ -4.0f };
-f64 Y_MAX{  4.0f };
-f64 Y_STEP{ 0.5f };
-u32 Y_STEP_COUNT{ static_cast<u32>(std::llround((Y_MAX - Y_MIN) / Y_STEP)) + 1 };
+struct Sampled_Domain {
+   Sampled_Axis x;
+   Sampled_Axis y;
+   Sampled_Axis z;
+};
 
-f64 Z_MIN{ -5.0f };
-f64 Z_MAX{  5.0f };
-f64 Z_STEP{ 0.5f };
-u32 Z_STEP_COUNT{ static_cast<u32>(std::llround((Z_MAX - Z_MIN) / Z_STEP)) + 1 };
+struct Sampled_Coordinate {
+   f64 x;
+   f64 y;
+   f64 z;
+};
 
-Vector3 CUBE_SIZE{ 2, 2, 2 };
-f32 CUBE_SPACING{ 5.0f };
+const Sampled_Domain CUBE_DOMAIN{
+   Sampled_Axis{ -0.5, 0.5, 16 },
+   Sampled_Axis{ -4.0, 0.5, 17 },
+   Sampled_Axis{ -5.0, 0.5, 21 }
+};
+
+const u32 X_STEP_COUNT{ CUBE_DOMAIN.x.sample_count };
+const u32 Y_STEP_COUNT{ CUBE_DOMAIN.y.sample_count };
+const u32 Z_STEP_COUNT{ CUBE_DOMAIN.z.sample_count };
+
+const Vector3 CUBE_SIZE{ 2, 2, 2 };
+const f32 CUBE_SPACING{ 5.0f };
 
 struct Cube_Index {
    u32 x;
@@ -57,11 +67,13 @@ struct Cube_Handle {
    u32 id;
 };
 
-struct Cube_Position {
-   f32 x;
-   f32 y;
-   f32 z;
-};
+static Sampled_Coordinate get_sampled_coordinate(Cube_Index index, const Sampled_Domain& domain) {
+   return Sampled_Coordinate{
+      domain.x.minimum + static_cast<f64>(index.x) * domain.x.step,
+      domain.y.minimum + static_cast<f64>(index.y) * domain.y.step,
+      domain.z.minimum + static_cast<f64>(index.z) * domain.z.step
+   };
+}
 
 enum Value : u8 {
    VALUE_A = 0,
@@ -82,42 +94,25 @@ struct Cube_Palette_Handle {
    u32 id;
 };
 
-Cube_Count CUBE_COUNT{ X_STEP_COUNT, Y_STEP_COUNT, Z_STEP_COUNT };
-u32 CUBE_TOTAL_COUNT{ X_STEP_COUNT * Y_STEP_COUNT * Z_STEP_COUNT };
+const Cube_Count CUBE_COUNT{ X_STEP_COUNT, Y_STEP_COUNT, Z_STEP_COUNT };
+const u32 CUBE_TOTAL_COUNT{ X_STEP_COUNT * Y_STEP_COUNT * Z_STEP_COUNT };
 
-const u32 PALETTE_1{ 0 };
-const u32 PALETTE_2{ 1 };
-const u32 PALETTE_3{ 2 };
-
-static Cube_Handle max_handle() {
-   return Cube_Handle{ CUBE_TOTAL_COUNT - 1 };
-}
+enum Palette_Id : u32 {
+   PALETTE_1 = 0,
+   PALETTE_2,
+   PALETTE_3,
+   PALETTE_COUNT
+};
 
 // grid-coordinates to handle
 static Cube_Handle get_handle(Cube_Index i, Cube_Count c) {
-   if (i.x >= c.x) return Cube_Handle{ 0 };
-   if (i.y >= c.y) return Cube_Handle{ 0 };
-   if (i.z >= c.z) return Cube_Handle{ 0 };
-
    return Cube_Handle{ static_cast<u32>(i.x + (i.y * c.x) + (i.z * c.x * c.y)) };
-}
-
-// handle to grid-coordinates
-static bool get_coordinates(Cube_Handle handle, Cube_Count widths, Cube_Index& out) {
-   if (handle.id > max_handle().id) return false;
-
-   u32 index{ static_cast<u32>(handle.id) };
-   out.z = (index / (widths.x * widths.y));
-
-   u32 remainder{ index % (widths.x * widths.y) };
-   out.y = remainder / widths.x;
-   out.x = remainder % static_cast<u32>(widths.x);
-   
-   return true;
 }
 
 
 inline Vector3 get_world_vector3(Cube_Index coords, Cube_Count widths, f32 spacing) {
+   // Sampled values describe the data domain. Centered indices and spacing
+   // independently describe where those samples are rendered in world space.
    return Vector3{
       spacing * (static_cast<f32>(coords.x) - ((static_cast<f32>(widths.x) - 1.0f) * 0.5f)),
       spacing * (static_cast<f32>(coords.y) - ((static_cast<f32>(widths.y) - 1.0f) * 0.5f)),
@@ -155,12 +150,6 @@ static u32 hash_coord(Cube_Index coordinate) {
    return hash32(mixed_coordinate);
 }
 
-enum Test_Handles {  
-   ACTUAL_SELECTED = 0, 
-   TEST_HANDLE_ONE,
-   TEST_HANDLE_TWO
-};
-
 inline i32 square_i32(i32 value) {
    return value * value;
 }
@@ -182,6 +171,57 @@ enum Move {
    MOVE_DOWN
 };
 
+struct Frame_Input {
+   Vector2 mouse_delta;
+   f32 mouse_wheel;
+   sdk::Cursor_Capture_Input cursor;
+   Move movement;
+   Cube_Palette_Handle requested_palette;
+   bool palette_changed;
+};
+
+static i32 clamp_i32(i32 value, i32 minimum, i32 maximum) {
+   if (value < minimum) return minimum;
+   if (value > maximum) return maximum;
+   return value;
+}
+
+static Frame_Input poll_frame_input() {
+   Frame_Input input = {};
+
+   input.mouse_delta = GetMouseDelta();
+   input.mouse_wheel = GetMouseWheelMove();
+   input.cursor.is_window_focused = IsWindowFocused();
+   input.cursor.capture_toggle_pressed = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+
+   if (IsKeyPressed(KEY_ONE)) {
+      input.requested_palette.id = PALETTE_1;
+      input.palette_changed = true;
+   } else if (IsKeyPressed(KEY_TWO)) {
+      input.requested_palette.id = PALETTE_2;
+      input.palette_changed = true;
+   } else if (IsKeyPressed(KEY_THREE)) {
+      input.requested_palette.id = PALETTE_3;
+      input.palette_changed = true;
+   }
+
+   if (IsKeyPressed(KEY_H)) {
+      input.movement = MOVE_LEFT;
+   } else if (IsKeyPressed(KEY_L)) {
+      input.movement = MOVE_RIGHT;
+   } else if (IsKeyPressed(KEY_U)) {
+      input.movement = MOVE_FORWARD;
+   } else if (IsKeyPressed(KEY_I)) {
+      input.movement = MOVE_BACKWARD;
+   } else if (IsKeyPressed(KEY_K)) {
+      input.movement = MOVE_UP;
+   } else if (IsKeyPressed(KEY_J)) {
+      input.movement = MOVE_DOWN;
+   }
+
+   return input;
+}
+
 i32 main() { 
    Value* values = static_cast<Value*>(std::malloc((CUBE_TOTAL_COUNT) * sizeof(Value)));
    if (values == nullptr) {
@@ -198,7 +238,7 @@ i32 main() {
       }
    }
 
-   Cube_Palette palettes[3] = { };
+   Cube_Palette palettes[PALETTE_COUNT] = { };
    palettes[0].styles[VALUE_A] = {BLUE, RAYWHITE};
    palettes[0].styles[VALUE_B] = {RED, RAYWHITE};
    palettes[0].styles[VALUE_C] = {GREEN, RAYWHITE};
@@ -240,6 +280,8 @@ i32 main() {
    sdk::Orbit_Camera_Config camera_config = {};
    camera_config.radians_per_mouse_pixel    = 0.005f;
    camera_config.world_units_per_wheel_step = 0.5f;
+   // This application keeps a deliberate margin from vertical so the
+   // horizontal orbit basis remains meaningful across the field's extent.
    camera_config.minimum_pitch    = -85.0f * DEG2RAD;
    camera_config.maximum_pitch    = 85.0f * DEG2RAD;
    camera_config.minimum_distance = 3.0f;
@@ -248,105 +290,75 @@ i32 main() {
    camera_config.fovy = 70;
    camera_config.projection = CAMERA_PERSPECTIVE;
 
+   if (!sdk::orbit_camera_config_is_valid(camera_config)) {
+      std::cerr << "ERR: CAMERA CONFIGURATION" << std::endl;
+      std::free(values);
+      values = nullptr;
+      sdk::runtime_shutdown(runtime);
+      return 1;
+   }
+
    sdk::Orbit_Camera_State camera_state = {};
    camera_state.distance = 10.0f;
    camera_state.pitch = 30 * DEG2RAD;
    camera_state.yaw   = 0.0f;
-   camera_state.wants_cursor_captured = true;
-   camera_state.suppress_mouse_delta  = true;
-   camera_state.was_window_focused    = false;
-   camera_state.target = Vector3{ 0, 0, 0 };
 
-   char buffer[20] = { 0 };
-   char camera_overlay_buffer[100] = { 0 };
-
-   auto startup_time = std::chrono::steady_clock::now();
+   sdk::Cursor_Capture_State cursor_state = {};
+   cursor_state.wants_cursor_captured = true;
 
    f32 text_x = 0.0f;
    f32 text_y = 0.0f;
    i32 font_size = 16;
 
-   Cube_Palette_Handle palette{ 1 };
+   Cube_Palette_Handle palette{ PALETTE_2 };
 
    Cube_Index c{};
    Cube_Handle selected_handle = get_handle(c, CUBE_COUNT);
 
    while (!WindowShouldClose()) {
-      auto frame_time = std::chrono::steady_clock::now();
-      auto diff = frame_time - startup_time;
-      double total_time = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() / 1000.0;
-
+      // Time and input
       f32 dt = GetFrameTime();
+      Frame_Input input{ poll_frame_input() };
 
-      Move move{ MOVE_NONE };
-
-      switch (GetKeyPressed()) { 
-      case KEY_ONE:   palette.id = PALETTE_1; break;
-      case KEY_TWO:   palette.id = PALETTE_2; break;
-      case KEY_THREE: palette.id = PALETTE_3; break;
-      case KEY_H:
-         move = MOVE_LEFT;
-         break;
-      case KEY_L:
-         move = MOVE_RIGHT;
-         break;
-      case KEY_K:
-         move = MOVE_UP;
-         break;
-      case KEY_J:
-         move = MOVE_DOWN;
-         break;
-      case KEY_I:
-         move = MOVE_BACKWARD;
-         break;
-      case KEY_U:
-         move = MOVE_FORWARD;
-         break;
-      default: break;
+      if (input.palette_changed) {
+         palette = input.requested_palette;
       }
 
-      Vector3 old_world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
-      camera_state.target = old_world_center;
+      // Cursor capture and orbit orientation
+      bool rotate_from_mouse{ sdk::cursor_capture_update(input.cursor, cursor_state) };
 
-      sdk::Orbit_Camera_Input camera_input = {}; 
-      camera_input.is_window_focused = IsWindowFocused();
-      camera_input.mouse_delta = GetMouseDelta();
-      camera_input.wheel_delta = GetMouseWheelMove();
-      camera_input.capture_toggle_pressed = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+      sdk::Orbit_Camera_Input camera_input = {};
+      camera_input.mouse_delta = input.mouse_delta;
+      camera_input.wheel_delta = input.mouse_wheel;
+      camera_input.rotate_from_mouse = rotate_from_mouse;
 
-      Camera3D camera = {};
-      
-      sdk::Orbit_Camera_Update_Result camera_update{ sdk::orbit_camera_update(camera_config, camera_input, camera_state, camera) };
-      if (camera_update != sdk::ORBIT_CAMERA_UPDATE_SUCCESS) {
-         std::cerr << "ERR: CAMERA UPDATE" << std::endl;
-         break;
-      }
-      
-      Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
-      Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
-      Vector3 view_up = Vector3Normalize(Vector3CrossProduct(right, forward));
+      sdk::orbit_camera_apply_input(camera_config, camera_input, camera_state);
 
+      sdk::Orbit_Camera_Derived derived_camera = {};
+      sdk::orbit_camera_derive(camera_config, camera_state, derived_camera);
+
+      // Camera-relative selection navigation
       i32 delta_x{ 0 };
       i32 delta_y{ 0 };
       i32 delta_z{ 0 };
       bool has_horizontal_intent{ false };
       Vector3 intended_direction{ 0, 0, 0 };
 
-      switch (move) {
+      switch (input.movement) {
       case MOVE_LEFT:
-         intended_direction = Vector3Negate(right);
+         intended_direction = Vector3Negate(derived_camera.right);
          has_horizontal_intent = true;
          break;
       case MOVE_RIGHT:
-         intended_direction = right;
+         intended_direction = derived_camera.right;
          has_horizontal_intent = true;
          break;
       case MOVE_FORWARD:
-         intended_direction = forward;
+         intended_direction = derived_camera.forward;
          has_horizontal_intent = true;
          break;
       case MOVE_BACKWARD:
-         intended_direction = Vector3Negate(forward);
+         intended_direction = Vector3Negate(derived_camera.forward);
          has_horizontal_intent = true;
          break;
       case MOVE_UP:
@@ -378,77 +390,65 @@ i32 main() {
          }
       }
 
-      i32 next_x{ static_cast<i32>(c.x) + delta_x };
-      i32 next_y{ static_cast<i32>(c.y) + delta_y };
-      i32 next_z{ static_cast<i32>(c.z) + delta_z };
-
-      if (next_x < 0) next_x = 0;
-      if (next_y < 0) next_y = 0;
-      if (next_z < 0) next_z = 0;
-
-      if (next_x >= static_cast<i32>(X_STEP_COUNT)) next_x = static_cast<i32>(X_STEP_COUNT) - 1;
-      if (next_y >= static_cast<i32>(Y_STEP_COUNT)) next_y = static_cast<i32>(Y_STEP_COUNT) - 1;
-      if (next_z >= static_cast<i32>(Z_STEP_COUNT)) next_z = static_cast<i32>(Z_STEP_COUNT) - 1;
+      i32 next_x{ clamp_i32(static_cast<i32>(c.x) + delta_x, 0, static_cast<i32>(CUBE_COUNT.x) - 1) };
+      i32 next_y{ clamp_i32(static_cast<i32>(c.y) + delta_y, 0, static_cast<i32>(CUBE_COUNT.y) - 1) };
+      i32 next_z{ clamp_i32(static_cast<i32>(c.z) + delta_z, 0, static_cast<i32>(CUBE_COUNT.z) - 1) };
 
       c.x = static_cast<u32>(next_x);
       c.y = static_cast<u32>(next_y);
       c.z = static_cast<u32>(next_z);
 
       selected_handle = get_handle(c, CUBE_COUNT);
-      bool is_selected_valid = get_coordinates(selected_handle, CUBE_COUNT, c);
 
-      Vector3 new_world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
-      Vector3 target_translation{ Vector3Subtract(new_world_center, old_world_center) };
+      Vector3 selected_world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
+      Camera3D camera = {};
+      sdk::orbit_camera_build(camera_config, derived_camera, selected_world_center, camera);
 
-      camera_state.target = new_world_center;
-      camera.target = new_world_center;
-      camera.position = Vector3Add(camera.position, target_translation);
+      // Per-frame diagnostic animation
       text_x += dt * 20.0f;
       text_y += dt * 20.0f;
 
       if ((i32)text_x >= config.screen_width) text_x = 0.0f;
       if ((i32)text_y >= config.screen_height) text_y = 0.0f;
 
-      Value selected_value{ VALUE_A };
+      Value selected_value{ values[selected_handle.id] };
+      Sampled_Coordinate selected_sample{ get_sampled_coordinate(c, CUBE_DOMAIN) };
 
+      // Focused visibility bounds
       i32 bound{ 3 };
+      i32 selected_x{ static_cast<i32>(c.x) };
+      i32 selected_y{ static_cast<i32>(c.y) };
+      i32 selected_z{ static_cast<i32>(c.z) };
 
-      i32 lx{ static_cast<i32>(c.x) - bound };
-      u32 ux{ c.x + bound };
-      if (lx < 0) lx = 0;
-      if (ux >= X_STEP_COUNT) ux = X_STEP_COUNT - 1;
-
-      i32 ly{ static_cast<i32>(c.y) - bound };
-      u32 uy{ c.y + bound };
-      if (ly < 0) ly = 0;
-      if (uy >= Y_STEP_COUNT) uy = Y_STEP_COUNT - 1;
-
-      i32 lz{ static_cast<i32>(c.z) - bound };
-      u32 uz{ c.z + bound };
-      if (lz < 0) lz = 0;
-      if (uz >= Z_STEP_COUNT) uz = Z_STEP_COUNT - 1;
+      i32 lx{ clamp_i32(selected_x - bound, 0, static_cast<i32>(CUBE_COUNT.x) - 1) };
+      i32 ux{ clamp_i32(selected_x + bound, 0, static_cast<i32>(CUBE_COUNT.x) - 1) };
+      i32 ly{ clamp_i32(selected_y - bound, 0, static_cast<i32>(CUBE_COUNT.y) - 1) };
+      i32 uy{ clamp_i32(selected_y + bound, 0, static_cast<i32>(CUBE_COUNT.y) - 1) };
+      i32 lz{ clamp_i32(selected_z - bound, 0, static_cast<i32>(CUBE_COUNT.z) - 1) };
+      i32 uz{ clamp_i32(selected_z + bound, 0, static_cast<i32>(CUBE_COUNT.z) - 1) };
 
       u32 submitted_cubes{ 0 };
 
+      // Draw the 3D scene, then the 2D diagnostic overlay
       BeginDrawing();
          ClearBackground(BLACK);
 
          BeginMode3D(camera);
             DrawGrid(10, 1);
-            DrawLine3D(camera_state.target, Vector3Add(camera_state.target, Vector3Scale(forward, 10)), BLUE);
-            DrawLine3D(camera_state.target, Vector3Add(camera_state.target, Vector3Scale(right,   10)), RED);
-            DrawLine3D(camera_state.target, Vector3Add(camera_state.target, Vector3Scale(view_up, 10)), GREEN);
+            DrawLine3D(camera.target, Vector3Add(camera.target, Vector3Scale(derived_camera.forward, 10.0f)), BLUE);
+            DrawLine3D(camera.target, Vector3Add(camera.target, Vector3Scale(derived_camera.right,   10.0f)), RED);
+            DrawLine3D(camera.target, Vector3Add(camera.target, Vector3Scale(derived_camera.view_up, 10.0f)), GREEN);
 
             const Cube_Palette& styles{ palettes[palette.id] };
 
             i32 radius_squared{ square_i32(bound) };
 
-            for (u32 z{ static_cast<u32>(lz) }; z <= uz; ++z) {
-               i32 dz{ square_i32(static_cast<i32>(z) - static_cast<i32>(c.z)) };
-               for (u32 y{ static_cast<u32>(ly) }; y <= uy; ++y) {
-                  i32 dy{ square_i32(static_cast<i32>(y) - static_cast<i32>(c.y)) };
-                  for (u32 x{ static_cast<u32>(lx) }; x <= ux; ++x) {
-                     i32 dx{ square_i32(static_cast<i32>(x) - static_cast<i32>(c.x)) };
+            for (i32 z{ lz }; z <= uz; ++z) {
+               i32 dz{ square_i32(z - selected_z) };
+               for (i32 y{ ly }; y <= uy; ++y) {
+                  i32 dy{ square_i32(y - selected_y) };
+                  for (i32 x{ lx }; x <= ux; ++x) {
+                     i32 dx{ square_i32(x - selected_x) };
 
                      i32 distance_squared{ dx + dy + dz };
                      if (distance_squared > radius_squared) continue;
@@ -460,13 +460,18 @@ i32 main() {
                      // 0 1 2 3 4 5
                      //       ^
 
-                     Cube_Handle cube_handle{ get_handle({x,y,z}, CUBE_COUNT) };
+                     Cube_Index cube_index{
+                        static_cast<u32>(x),
+                        static_cast<u32>(y),
+                        static_cast<u32>(z)
+                     };
+                     Cube_Handle cube_handle{ get_handle(cube_index, CUBE_COUNT) };
                      Value cube_value{ values[cube_handle.id] };
 
-                     Vector3 p{ get_world_vector3({x,y,z}, CUBE_COUNT, CUBE_SPACING) }; 
+                     Vector3 p{ get_world_vector3(cube_index, CUBE_COUNT, CUBE_SPACING) };
 
                      DrawCubeV(p, CUBE_SIZE, styles.styles[cube_value].fill_color);
-                     if (is_selected_valid && selected_handle.id == cube_handle.id) {
+                     if (selected_handle.id == cube_handle.id) {
                         DrawCubeWiresV(p, CUBE_SIZE, LIME);
                      } else {
                         DrawCubeWiresV(p, CUBE_SIZE, styles.styles[cube_value].wire_color);
@@ -478,8 +483,7 @@ i32 main() {
 
          EndMode3D();
 
-         std::snprintf(buffer, sizeof(buffer), "seconds: %.2f", total_time);
-         DrawText(buffer, (i32)text_x, (i32)text_y, font_size, RAYWHITE);
+         DrawText(TextFormat("seconds: %.2f", GetTime()), (i32)text_x, (i32)text_y, font_size, RAYWHITE);
 
          i32 y_offset = 5;
          i32 x_offset = 5;
@@ -490,29 +494,23 @@ i32 main() {
          y_offset += font_size;
          DrawText("ESC: Exit", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
-         DrawText(TextFormat("Palette: %i", palette.id), x_offset, y_offset, font_size, RAYWHITE);
+         DrawText(TextFormat("Palette: %u", palette.id), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          DrawText("FORWARD: BLUE - RIGHT: RED - UP: GREEN", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
-         i32 cubes_tested{ (static_cast<i32>(ux)-lx + 1) * (static_cast<i32>(uy)-ly + 1) * (static_cast<i32>(uz)-lz + 1) };
+         i32 cubes_tested{ (ux - lx + 1) * (uy - ly + 1) * (uz - lz + 1) };
          DrawText(TextFormat("Tested Cubes: %i", cubes_tested), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          DrawText(TextFormat("Submitted Cubes: %u", submitted_cubes), x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
-         if (is_selected_valid) {
-            selected_value = values[selected_handle.id];
-            DrawText(TextFormat("CUBE: handle = %u  value = %s | x = %i  y = %i  z = %i", selected_handle.id, get_value_string(selected_value), c.x, c.y, c.z), x_offset, y_offset, font_size, RAYWHITE);
-         } else { 
-            DrawText("CUBE: handle = FAIL", x_offset, y_offset, font_size, RAYWHITE);
-         }
+         DrawText(TextFormat("CUBE: handle = %u  value = %s | index (%u,%u,%u) sample (%.2f,%.2f,%.2f)", selected_handle.id, get_value_string(selected_value), c.x, c.y, c.z, selected_sample.x, selected_sample.y, selected_sample.z), x_offset, y_offset, font_size, RAYWHITE);
 
          y_offset += font_size;
-         std::snprintf(camera_overlay_buffer, sizeof(camera_overlay_buffer), "CAMERA: target (%.2f,%.2f,%.2f) yaw (%.2f) pitch (%.2f) distance (%.2f) capture (%d)", camera.target.x, camera.target.y, camera.target.z, camera_state.yaw, camera_state.pitch, camera_state.distance, camera_state.wants_cursor_captured);
-         DrawText(camera_overlay_buffer, x_offset, y_offset, font_size, RAYWHITE);
+         DrawText(TextFormat("CAMERA: target (%.2f,%.2f,%.2f) yaw (%.2f) pitch (%.2f) distance (%.2f) capture (%d)", camera.target.x, camera.target.y, camera.target.z, camera_state.yaw, camera_state.pitch, camera_state.distance, cursor_state.wants_cursor_captured), x_offset, y_offset, font_size, RAYWHITE);
 
          if (runtime.used_defaults) {
             y_offset += font_size;

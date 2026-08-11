@@ -25,26 +25,46 @@ struct Orbit_Camera_State {
    float distance;
    float pitch;
    float yaw;
-   Vector3 target;
+};
+
+struct Cursor_Capture_State {
    bool wants_cursor_captured;
-   bool suppress_mouse_delta;
-   bool was_window_focused;
+   bool is_cursor_captured;
 };
 
 struct Orbit_Camera_Input {
    Vector2 mouse_delta;
    float wheel_delta;
+   bool rotate_from_mouse;
+};
 
+struct Cursor_Capture_Input {
    bool capture_toggle_pressed;
    bool is_window_focused;
 };
 
-enum Orbit_Camera_Update_Result {
-   ORBIT_CAMERA_UPDATE_SUCCESS = 0,
-   ORBIT_CAMERA_INVALID_CONFIG
+struct Orbit_Camera_Derived {
+   Vector3 position_offset;
+   Vector3 forward;
+   Vector3 right;
+   Vector3 view_up;
 };
 
-Orbit_Camera_Update_Result orbit_camera_update(const Orbit_Camera_Config& config, const Orbit_Camera_Input& input, Orbit_Camera_State& state, Camera3D& camera);
+// Reconciles logical capture with Raylib's physical cursor state and returns
+// true only when this frame's sampled mouse delta is safe to use for rotation.
+bool cursor_capture_update(const Cursor_Capture_Input& input, Cursor_Capture_State& state);
+
+// Validates immutable orbit policy and camera description once during setup.
+bool orbit_camera_config_is_valid(const Orbit_Camera_Config& config);
+
+// Applies sampled controls to persistent orientation and distance only.
+void orbit_camera_apply_input(const Orbit_Camera_Config& config, const Orbit_Camera_Input& input, Orbit_Camera_State& state);
+
+// Calculates one target-independent offset and orthonormal basis for this frame.
+void orbit_camera_derive(const Orbit_Camera_Config& config, const Orbit_Camera_State& state, Orbit_Camera_Derived& derived);
+
+// Places the derived orbit around the final application-owned target.
+void orbit_camera_build(const Orbit_Camera_Config& config, const Orbit_Camera_Derived& derived, Vector3 target, Camera3D& camera);
 
 } // namespace sdk
 
