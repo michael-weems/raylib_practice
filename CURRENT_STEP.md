@@ -2,210 +2,254 @@
 
 ## Resume here
 
-Checkpoints 1 through 18 are complete. Checkpoint 19 is **Euclidean radius
-culling**.
+Checkpoints 1 through 21 are complete. Checkpoint 22 is **Camera-relative
+horizontal navigation**.
 
-Checkpoint 18 reduced the complete field to a small axis-aligned candidate box.
-This checkpoint keeps that box as a broad phase, but rejects its corner cubes
-before doing cube-specific memory access, coordinate conversion, or drawing.
+The camera basis from Checkpoint 21 is now trusted. This checkpoint will use
+that continuous orientation to choose a discrete neighboring cube. Keep the
+basis visualization while developing; it is useful evidence that the selected
+grid step agrees with the camera.
 
-Build directly in `main.cpp`. Preserve the current radius of three, bounded
-loops, camera, selection, palettes, and overlay. No module extraction is needed.
+## Runnable goal
 
-## New graphics concept: broad phase and narrow phase
+Replace fixed-world X/Z selection controls with camera-relative controls:
 
-Visibility and collision systems often use multiple tests ordered from cheapest
-and broadest to more precise and expensive:
+- `H` selects the cube that appears to the left;
+- `L` selects the cube that appears to the right;
+- `U` selects the cube past the target, away from the viewer;
+- `I` selects the cube before the target, toward the viewer.
 
-```text
-complete field
-    -> clamped coordinate box       broad phase
-    -> squared-distance test        narrow phase
-    -> handle/value/world position  accepted cube work
-    -> Raylib draw submission       software rasterization
-```
+Each press must still select exactly one face-adjacent cube. `J` and `K` may
+remain fixed world-Y controls for this checkpoint. Checkpoint 23 will decide
+when forward/back intent should move through Y layers.
 
-The box guarantees a small upper bound on work. The sphere test then removes
-the box corners. This is more efficient than applying the distance test to the
-entire field, and much cheaper than asking the software renderer to process
-geometry that cannot belong to the focused neighborhood.
+## New graphics concept: quantizing a continuous direction
 
-This checkpoint classifies cube **centers** in grid space. It does not test
-whether the physical volume of a cube intersects a mathematical sphere.
-
-## Grid-space Euclidean distance
-
-For one candidate coordinate and the selected coordinate:
+The camera's basis vectors contain floating-point directions. At most yaw
+angles, camera-forward and camera-right do not align exactly with world X or Z:
 
 ```text
-dx = candidate x - selected x
-dy = candidate y - selected y
-dz = candidate z - selected z
-
-distance squared = dx*dx + dy*dy + dz*dz
-radius squared   = radius*radius
+camera-right = ( 0.81, 0.00,  0.59 )
 ```
 
-Accept the candidate when its squared distance is less than or equal to the
-squared radius. The equality includes cubes whose centers lie exactly on the
-sphere boundary.
+Moving by both components would produce a diagonal grid step. That would skip
+the face-neighbor rule and could change two coordinates from one key press.
 
-Because spacing is currently uniform on X, Y, and Z, a sphere in grid space is
-also a uniformly scaled sphere in world space. Different spacing per axis would
-turn this grid-space sphere into an ellipsoid in world space.
-
-## Why avoid `sqrt()`?
-
-The ordinary distance formula ends with a square root:
+Instead, quantize the continuous direction onto the nearest horizontal world
+axis:
 
 ```text
-distance = sqrt(dx*dx + dy*dy + dz*dz)
+continuous camera direction
+       -> remove Y
+       -> compare |X| with |Z|
+       -> retain the dominant axis and its sign
+       -> one of (-X, +X, -Z, +Z)
 ```
 
-Square root is unnecessary when you only need to compare distances. For
-nonnegative values, squaring preserves order:
+For the example above, `|0.81| > |0.59|`, so screen-right becomes one `+X`
+grid step.
+
+This is a small form of vector classification. Four regions of the horizontal
+direction circle map to four cardinal grid directions.
+
+## Flattening onto the horizontal plane
+
+Checkpoint 22 deliberately ignores vertical camera intent. Project a camera
+direction onto the world XZ plane by discarding its Y component:
 
 ```text
-distance <= radius
-
-has the same classification as
-
-distance_squared <= radius_squared
+horizontal_forward = (forward.x, 0, forward.z)
+horizontal_right   = (right.x,   0, right.z)
 ```
 
-The squared form uses integer subtraction, multiplication, addition, and one
-comparison. It is exact for these small grid offsets and avoids floating-point
-conversion and square root in the candidate loop.
+Normalizing the flattened vector can make its meaning clearer, but it does not
+change which of X or Z is dominant. Do not use the discarded Y component in
+the decision yet.
+
+The current pitch clamp keeps horizontal-forward from becoming exactly zero.
+Checkpoint 23 will revisit steep pitch instead of adding fallback behavior now.
+
+## Turning semantic intent into a direction
+
+Treat a key as an intent before treating it as a coordinate mutation:
+
+```text
+screen-right     -> horizontal camera-right
+screen-left      -> negative horizontal camera-right
+away from viewer -> horizontal camera-forward
+toward viewer    -> negative horizontal camera-forward
+```
+
+Remember that `forward = target - position`. Extending forward through the
+target therefore travels farther away from the viewer. Negating it travels
+back toward the camera.
+
+Once an intended direction has been selected, compare the magnitudes of its X
+and Z components. Change only the dominant coordinate by `+1` or `-1` according
+to that component's sign.
+
+Use signed temporary deltas even though stored grid coordinates are unsigned.
+Apply the delta and clamp against the field boundary before converting the
+coordinate back into a handle.
+
+## The 45-degree boundary
+
+At exactly a diagonal direction, `|X| == |Z|`. There is no uniquely nearest
+cardinal axis, so the program needs a deterministic tie policy.
+
+For example, an `>=` comparison can make X win ties; changing the comparison
+can make Z win. Either policy is acceptable if it is deliberate and consistent.
+Near the boundary, a tiny yaw change will switch sectors. That is expected:
+the grid offers no diagonal result in this checkpoint.
+
+Do not add smoothing, accumulated movement, or a stored navigation direction.
+One key-edge event produces one classification and one step.
+
+## Frame-order challenge
+
+The existing fixed-world switch runs before this frame's `Camera3D` and basis
+exist. Camera-relative navigation cannot make its decision there without using
+stale or independently reconstructed camera math.
+
+Reorganize the frame so that:
+
+1. Raylib input is sampled once.
+2. The current orbit orientation produces a `Camera3D` and basis.
+3. A navigation event is classified using that basis.
+4. A successful step changes the selected coordinate, handle, and world target.
+5. The final camera and rendered neighborhood agree on the same selected cube.
+
+Do not process the same mouse delta or wheel delta through
+`orbit_camera_update()` twice. That would rotate or zoom twice in one frame and
+could also repeat cursor-transition side effects.
+
+When a target snaps but yaw, pitch, and distance do not change, this invariant
+should remain true:
+
+```text
+camera.position - camera.target = unchanged orbit offset
+```
+
+That invariant is the clue for keeping the final current-frame `Camera3D`
+coherent after selection changes. Work out the simplest ordering or translation
+that preserves it. If this becomes the blocking part, ask for a more specific
+hint before changing the orbit-camera API.
 
 ## Build brief
 
-1. Keep the radius-three clamped box from Checkpoint 18 unchanged.
-2. Preserve the existing box-candidate count; it reports broad-phase work.
-3. Add a separate submitted-cube count and reset it once per frame.
-4. Inside the bounded loops, calculate the signed X/Y/Z offset from the
-   selected coordinate.
-5. Compare squared distance with squared radius and skip candidates outside the
-   sphere.
-6. Perform the rejection before deriving a handle, loading `values[]`, deriving
-   a world position, or calling a Raylib draw function.
-7. Increment the submitted count only for accepted cubes.
-8. Show both tested candidates and submitted cubes in the 2D overlay.
+1. Continue deriving forward and right from the completed current camera.
+2. Flatten the relevant directions onto XZ.
+3. Convert the four navigation keys into semantic intended directions.
+4. Quantize an intended direction onto exactly one signed X/Z grid step.
+5. Clamp the resulting coordinate to the field.
+6. Recalculate the selected handle and target using existing helpers.
+7. Keep the camera orbit offset coherent during the snap.
+8. Keep the basis visualization and add concise navigation diagnostics if they
+   help verify the chosen world-axis step.
 
-## Signed arithmetic again
+This may remain directly in `main.cpp`. Do not create a navigation module or a
+general vector-quantization abstraction for one use site.
 
-The candidate and selected coordinates are unsigned identities, but their
-difference can be negative:
+## Immediate-mode and memory intent
 
-```text
-candidate x = 2
-selected x  = 5
-dx          = -3
-```
-
-Convert to a signed type before subtraction. Subtracting first in an unsigned
-type would wrap, and squaring that wrapped value would not recover the intended
-distance.
-
-## Hot-loop reasoning
-
-The Z offset is unchanged for an entire Z slice. The Y offset is unchanged for
-an entire X row. Only the X offset changes on every innermost iteration.
-
-After you have a correct version, look at whether your calculation naturally
-allows invariant work to live at the loop level where it changes:
+All navigation math is transient and derived from this frame's camera plus one
+input event:
 
 ```text
-Z loop: calculate dz and dz squared
-    Y loop: calculate dy and partial squared distance
-        X loop: add dx squared and classify
+Camera3D + pressed key -> intended direction -> signed grid delta -> selection
 ```
 
-This is loop-invariant hoisting. It reduces repeated arithmetic without adding
-storage or abstraction. Correctness comes first; make the direct version work
-before considering this arrangement.
-
-The distance rejection should also occur before `values[cube_handle.id]`.
-Rejected cubes then cause no semantic-data load and no unnecessary world-space
-math. Accepted X coordinates still access compact, mostly sequential values.
-
-## Expected results for radius three
-
-At a sufficiently interior selected coordinate:
-
-```text
-box candidates tested = 7 * 7 * 7 = 343
-sphere cubes submitted = 123
-```
-
-At a field corner:
-
-```text
-box candidates tested = 4 * 4 * 4 = 64
-sphere cubes submitted = 29
-```
-
-The corner count is a clipped octant of the discrete lattice sphere, including
-the shared boundary planes and the selected center.
+No navigation array, lookup table, heap allocation, retained command, or cube
+scan is needed. The work is a handful of scalar comparisons performed only
+when a relevant key is pressed. It does not touch the 50-million-value cube
+array until normal rendering reads the small visible neighborhood.
 
 ## Visible finish
 
-- The focused neighborhood changes from a box to a rounded lattice cluster.
-- The selected cube remains at the cluster center when away from boundaries.
-- Near a field boundary, the cluster clips cleanly without wrapping.
-- The overlay separately reports candidates tested and cubes submitted.
-- Interior selection reports 343 tested and 123 submitted.
-- Corner selection reports 64 tested and 29 submitted.
-- Camera orbit, zoom, cursor capture, highlighting, and palettes still work.
-
-## Constraints
-
-- Keep the bounded box; do not scan the full field.
-- Use squared grid distance; do not call `sqrt`, `Vector3Distance`, or a Raylib
-  collision function.
-- Use signed offsets before squaring.
-- Reject before handle lookup, value access, world-position calculation, and
-  draw submission.
-- Do not allocate or construct a retained visible-cube list.
-- Keep X as the innermost loop.
-- Keep rendering immediate-mode.
-- No SIMD or generalized culling API is required.
+- `H` always moves visually left after orbiting.
+- `L` always moves visually right after orbiting.
+- `U` moves to the horizontal cube beyond the selected cube from the viewer.
+- `I` moves horizontally toward the viewer.
+- Every press changes zero coordinates at a boundary or exactly one coordinate
+  elsewhere.
+- Movement remains one discrete step per press.
+- Snapping does not reset yaw, pitch, distance, or cursor capture.
+- The camera, highlight, basis origin, culling neighborhood, and overlay all
+  agree on the newly selected cube in the rendered frame.
+- Palette switching and existing J/K behavior still work.
 
 ## Self-checks
 
-- Temporarily inspect candidates at squared distances `0`, `1`, `8`, `9`, and
-  `10`; radius three should accept through `9` and reject `10`.
-- Verify the selected cube is always accepted because its squared distance is
-  zero.
-- Compare interior and corner counts with the expected values above.
-- Try an upper boundary as well as handle zero's lower corner.
-- Confirm the tested count does not change after adding the sphere test; only
-  the submitted count should fall.
+Orbit near these yaw angles and test all four camera-relative controls:
+
+```text
+0 degrees
+just below / exactly / just above 45 degrees
+90 degrees
+135 degrees
+180 degrees
+270 degrees
+```
+
+Also test:
+
+- all four X/Z field boundaries;
+- shallow and steep positive/negative pitch;
+- alternating opposite keys rapidly;
+- orbiting immediately before a navigation press;
+- holding a key rather than tapping it;
+- palette keys after the input reordering.
+
+The camera basis lines should let you predict the chosen X/Z axis before each
+press. If screen-left becomes screen-right, inspect vector negation. If X and Z
+are swapped at unexpected angles, inspect the dominant-axis comparison. If the
+camera jumps independently of the selected cube, inspect the frame-order orbit
+offset invariant.
+
+## Constraints
+
+- Use the current camera basis, not raw yaw or duplicated trigonometry.
+- Ignore Y when classifying horizontal navigation in this checkpoint.
+- Produce only face-adjacent grid movement; no diagonal steps.
+- Keep the existing discrete Raylib key-event behavior.
+- Choose and understand a deterministic 45-degree tie policy.
+- Do not scan cube data to navigate.
+- Do not allocate or retain derived navigation data.
+- Do not change the orbit-camera API unless the current attempt proves it is
+  necessary.
+- Do not implement pitch-aware Y selection yet.
 
 ## References if blocked
 
-- `REPORT.md`, sections 12.2 and 13.
-- `raylib.h` for the draw calls whose submissions are being avoided.
-- `3D_SPACE_CURRICULUM.md` for vector length and distance exercises.
+- `raymath.h`: `Vector3Negate()`, `Vector3Normalize()`, and vector components.
+- `REPORT.md`, section 10, for the finished application's navigation concept.
+- `3D_SPACE_CURRICULUM.md` for projection and basis exercises.
+- Raylib keyboard input documentation for edge-triggered key events.
+
+Do not copy the finished navigation implementation from `reference/`; use it
+only after your own attempt if runtime behavior remains unexplained.
 
 ## Review target
 
 Submit the running implementation when ready. Review will check:
 
-- the clamped broad-phase box remains intact;
-- signed offsets are calculated correctly;
-- squared-distance classification includes the radius boundary;
-- rejection happens before cube-specific work;
-- interior and corner tested/submitted counts match predictions;
-- no `sqrt`, full-field scan, allocation, or retained render list appeared;
-- selection, camera target, highlight, and overlay still agree;
+- current camera forward/right drive semantic navigation;
+- vertical components are excluded from horizontal classification;
+- dominant-axis and sign selection are correct and deterministic;
+- one press produces at most one face-neighbor step;
+- unsigned coordinates cannot underflow or overflow;
+- camera/selection/render state is coherent in the same frame;
+- no mouse/wheel input or cursor transition is accidentally processed twice;
+- no allocations, field scans, or retained render state were introduced;
 - the learner build passes.
 
-Reflection follows after it works: why is a cheap broad phase still useful when
-you already have a more accurate sphere test, and why can squared distances be
-compared without computing actual distances?
+Reflection follows after it works: why is dominant-axis classification a form
+of quantization, what information is discarded, and why can a deterministic
+answer near 45 degrees still change abruptly?
 
 ## Resume prompt
 
-> I am starting Checkpoint 19 from `CURRENT_STEP.md`: keep the clamped
-> radius-three candidate box, reject coordinates whose squared grid distance
-> exceeds nine, and report both candidates tested and cubes submitted.
+> I am starting Checkpoint 22 from `CURRENT_STEP.md`: flatten the current
+> camera basis onto XZ, quantize left/right/forward/back intent into one signed
+> face-neighbor step, and keep the snapped camera target coherent without
+> processing frame input twice.

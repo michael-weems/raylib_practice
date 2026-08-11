@@ -165,6 +165,23 @@ inline i32 square_i32(i32 value) {
    return value * value;
 }
 
+inline f32 abs_f32(f32 value) {
+   if (value < 0.0f) {
+      return -value;
+   }
+   return value;
+}
+
+enum Move {
+   MOVE_NONE = 0,
+   MOVE_LEFT,
+   MOVE_RIGHT,
+   MOVE_FORWARD,
+   MOVE_BACKWARD,
+   MOVE_UP,
+   MOVE_DOWN
+};
+
 i32 main() { 
    Value* values = static_cast<Value*>(std::malloc((CUBE_TOTAL_COUNT) * sizeof(Value)));
    if (values == nullptr) {
@@ -260,54 +277,36 @@ i32 main() {
       double total_time = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() / 1000.0;
 
       f32 dt = GetFrameTime();
-      
-      bool is_selected_valid{ get_coordinates(selected_handle, CUBE_COUNT, c) };
-      
+
+      Move move{ MOVE_NONE };
+
       switch (GetKeyPressed()) { 
       case KEY_ONE:   palette.id = PALETTE_1; break;
       case KEY_TWO:   palette.id = PALETTE_2; break;
       case KEY_THREE: palette.id = PALETTE_3; break;
       case KEY_H:
-         if (c.x != 0) --c.x;
-         if (c.x < 0) c.x = 0;
+         move = MOVE_LEFT;
          break;
       case KEY_L:
-         ++c.x;
-         if (c.x >= X_STEP_COUNT) c.x = X_STEP_COUNT - 1;
+         move = MOVE_RIGHT;
          break;
       case KEY_K:
-         ++c.y;
-         if (c.y >= Y_STEP_COUNT) c.y = Y_STEP_COUNT - 1;
+         move = MOVE_UP;
          break;
       case KEY_J:
-         if (c.y != 0) --c.y;
-         if (c.y < 0) c.y = 0;
+         move = MOVE_DOWN;
          break;
       case KEY_I:
-         ++c.z;
-         if (c.z >= Z_STEP_COUNT) c.z = Z_STEP_COUNT - 1;
+         move = MOVE_BACKWARD;
          break;
       case KEY_U:
-         if (c.z != 0) --c.z;
-         if (c.z < 0) c.z = 0;
+         move = MOVE_FORWARD;
          break;
       default: break;
       }
 
-      selected_handle = get_handle(c, CUBE_COUNT);
-
-      is_selected_valid = get_coordinates(selected_handle, CUBE_COUNT, c);
-
-      text_x += dt * 20.0f;
-      text_y += dt * 20.0f;
-
-      if ((i32)text_x >= config.screen_width) text_x = 0.0f;
-      if ((i32)text_y >= config.screen_height) text_y = 0.0f;
-
-      Value selected_value{ VALUE_A };
-
-      Vector3 world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
-      camera_state.target = world_center;
+      Vector3 old_world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
+      camera_state.target = old_world_center;
 
       sdk::Orbit_Camera_Input camera_input = {}; 
       camera_input.is_window_focused = IsWindowFocused();
@@ -323,6 +322,95 @@ i32 main() {
          break;
       }
       
+      Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+      Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
+      Vector3 view_up = Vector3Normalize(Vector3CrossProduct(right, forward));
+
+      i32 delta_x{ 0 };
+      i32 delta_y{ 0 };
+      i32 delta_z{ 0 };
+      bool has_horizontal_intent{ false };
+      Vector3 intended_direction{ 0, 0, 0 };
+
+      switch (move) {
+      case MOVE_LEFT:
+         intended_direction = Vector3Negate(right);
+         has_horizontal_intent = true;
+         break;
+      case MOVE_RIGHT:
+         intended_direction = right;
+         has_horizontal_intent = true;
+         break;
+      case MOVE_FORWARD:
+         intended_direction = forward;
+         has_horizontal_intent = true;
+         break;
+      case MOVE_BACKWARD:
+         intended_direction = Vector3Negate(forward);
+         has_horizontal_intent = true;
+         break;
+      case MOVE_UP:
+         delta_y = 1;
+         break;
+      case MOVE_DOWN:
+         delta_y = -1;
+         break;
+      case MOVE_NONE: break;
+      default: break;
+      }
+
+      if (has_horizontal_intent) {
+         intended_direction.y = 0.0f;
+         f32 absolute_x{ abs_f32(intended_direction.x) };
+         f32 absolute_z{ abs_f32(intended_direction.z) };
+         if (absolute_x >= absolute_z) {
+            if (intended_direction.x >= 0.0f) {
+               delta_x = 1;
+            } else {
+               delta_x = -1;
+            }
+         } else {
+            if (intended_direction.z >= 0.0f) {
+               delta_z = 1;
+            } else {
+               delta_z = -1;
+            }
+         }
+      }
+
+      i32 next_x{ static_cast<i32>(c.x) + delta_x };
+      i32 next_y{ static_cast<i32>(c.y) + delta_y };
+      i32 next_z{ static_cast<i32>(c.z) + delta_z };
+
+      if (next_x < 0) next_x = 0;
+      if (next_y < 0) next_y = 0;
+      if (next_z < 0) next_z = 0;
+
+      if (next_x >= static_cast<i32>(X_STEP_COUNT)) next_x = static_cast<i32>(X_STEP_COUNT) - 1;
+      if (next_y >= static_cast<i32>(Y_STEP_COUNT)) next_y = static_cast<i32>(Y_STEP_COUNT) - 1;
+      if (next_z >= static_cast<i32>(Z_STEP_COUNT)) next_z = static_cast<i32>(Z_STEP_COUNT) - 1;
+
+      c.x = static_cast<u32>(next_x);
+      c.y = static_cast<u32>(next_y);
+      c.z = static_cast<u32>(next_z);
+
+      selected_handle = get_handle(c, CUBE_COUNT);
+      bool is_selected_valid = get_coordinates(selected_handle, CUBE_COUNT, c);
+
+      Vector3 new_world_center{ get_world_vector3(c, CUBE_COUNT, CUBE_SPACING) };
+      Vector3 target_translation{ Vector3Subtract(new_world_center, old_world_center) };
+
+      camera_state.target = new_world_center;
+      camera.target = new_world_center;
+      camera.position = Vector3Add(camera.position, target_translation);
+      text_x += dt * 20.0f;
+      text_y += dt * 20.0f;
+
+      if ((i32)text_x >= config.screen_width) text_x = 0.0f;
+      if ((i32)text_y >= config.screen_height) text_y = 0.0f;
+
+      Value selected_value{ VALUE_A };
+
       i32 bound{ 3 };
 
       i32 lx{ static_cast<i32>(c.x) - bound };
@@ -347,9 +435,9 @@ i32 main() {
 
          BeginMode3D(camera);
             DrawGrid(10, 1);
-            DrawLine3D(Vector3{0, 0, 0}, Vector3{10, 0, 0}, BLUE);
-            DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 10, 0}, RED);
-            DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 0, 10}, GREEN);
+            DrawLine3D(camera_state.target, Vector3Add(camera_state.target, Vector3Scale(forward, 10)), BLUE);
+            DrawLine3D(camera_state.target, Vector3Add(camera_state.target, Vector3Scale(right,   10)), RED);
+            DrawLine3D(camera_state.target, Vector3Add(camera_state.target, Vector3Scale(view_up, 10)), GREEN);
 
             const Cube_Palette& styles{ palettes[palette.id] };
 
@@ -403,6 +491,9 @@ i32 main() {
          DrawText("ESC: Exit", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
          DrawText(TextFormat("Palette: %i", palette.id), x_offset, y_offset, font_size, RAYWHITE);
+         y_offset += font_size;
+
+         DrawText("FORWARD: BLUE - RIGHT: RED - UP: GREEN", x_offset, y_offset, font_size, RAYWHITE);
          y_offset += font_size;
 
          i32 cubes_tested{ (static_cast<i32>(ux)-lx + 1) * (static_cast<i32>(uy)-ly + 1) * (static_cast<i32>(uz)-lz + 1) };

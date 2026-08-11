@@ -1381,10 +1381,10 @@ links here instead of duplicating checkpoint history.
 | 16 | Palettes and edges | complete | | Build/review passed; three zero-based palettes map immutable values to adjacent fill/edge styles and switch immediately with keys 1/2/3. |
 | 17 | Selected target | complete | | Build/review passed; persistent zero-based selection drives the orbit target without resetting orientation or zoom. |
 | 18 | Focused bounds | complete | | Build/review passed; radius-three box directly enumerates 343 interior or 64 corner candidates with X-contiguous traversal. |
-| 19 | Radius culling | working | | Reject bounded-box coordinates outside the selected cube's Euclidean grid-space radius. |
-| 20 | Discrete navigation events | not started | | |
-| 21 | Camera basis visualization | not started | | |
-| 22 | Camera-relative navigation | not started | | |
+| 19 | Radius culling | complete | | Build/review passed; squared grid-distance culling reduces 343 interior candidates to 123 submitted cubes before semantic loads or drawing. |
+| 20 | Discrete navigation events | complete | | Build/review passed; queued Raylib press events move one fixed-world face neighbor per frame and clamp at field boundaries. |
+| 21 | Camera basis visualization | complete | | Build/review passed; the current camera produces an orthonormal basis and correctly translated debug endpoints; camera-forward collapses along the central perspective ray as expected. |
+| 22 | Camera-relative navigation | working | | Quantize flattened camera directions into one signed X/Z face-neighbor step per discrete input event. |
 | 23 | Vertical navigation | not started | | |
 | 24 | Screen-to-world ray | not started | | |
 | 25 | Focused picking | not started | | |
