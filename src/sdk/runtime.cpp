@@ -10,7 +10,7 @@ Runtime_Result runtime_init(Runtime_State& state, Runtime_Config& config) {
    }
 
    if (config.title == nullptr || config.title[0] == '\0') {
-      config.title = "Ya BOI";
+      config.title = "Ya BOI Varmrblaha";
       state.used_defaults = true;
    }
    if (config.screen_width <= 0) {
